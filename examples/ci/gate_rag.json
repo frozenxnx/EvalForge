@@ -1,0 +1,12 @@
+{
+  "description": "Gate for the RAG experiment in experiment_ci.json. Tolerances are set near this dataset's noise floor (48 questions): see README 'How many examples do I need'.",
+  "baseline": "main",
+  "metrics": {
+    "contains": {"max_drop": 0.10},
+    "recall@3": {"max_drop": 0.10},
+    "mrr": {"max_drop": 0.10}
+  },
+  "max_error_rate": 0.05,
+  "max_p95_ratio": 2.0,
+  "on_inconclusive": "warn"
+}

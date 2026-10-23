@@ -1,0 +1,44 @@
+{"id": "h01", "input": "A store sells pencils at 3 for $1.50. How many dollars do 18 pencils cost?", "reference": "9", "metadata": {"category": "arithmetic", "check": "contains"}}
+{"id": "h02", "input": "A train travels 60 miles per hour for 2.5 hours, then 40 miles per hour for 3 hours. How many miles does it travel in total?", "reference": "270", "metadata": {"category": "arithmetic", "check": "contains"}}
+{"id": "h03", "input": "Sam has 4 boxes with 12 apples each. He gives away a quarter of all his apples and then eats 5. How many apples does he have left?", "reference": "31", "metadata": {"category": "arithmetic", "check": "contains"}}
+{"id": "h04", "input": "What is 23 multiplied by 47?", "reference": "1081", "metadata": {"category": "arithmetic", "check": "contains"}}
+{"id": "h05", "input": "A shirt costs $80 and is discounted by 25%, then the sale price is discounted by a further 10%. What is the final price in dollars?", "reference": "54", "metadata": {"category": "arithmetic", "check": "contains"}}
+{"id": "h06", "input": "What is the sum of all whole numbers from 1 to 100?", "reference": "5050", "metadata": {"category": "arithmetic", "check": "contains"}}
+{"id": "h07", "input": "What is the date 100 days after January 1st in a non-leap year?", "reference": "April 11", "metadata": {"category": "calendar", "check": "contains"}}
+{"id": "h08", "input": "What day of the week was January 1st, 2000?", "reference": "Saturday", "metadata": {"category": "calendar", "check": "contains"}}
+{"id": "h09", "input": "How many days are there between March 1st and June 1st of the same year, not counting the end date?", "reference": "92", "metadata": {"category": "calendar", "check": "contains"}}
+{"id": "h10", "input": "If today is Wednesday, what day of the week will it be 100 days from today?", "reference": "Friday", "metadata": {"category": "calendar", "check": "contains"}}
+{"id": "h11", "input": "How many days are in February of the year 2100?", "reference": "28", "metadata": {"category": "calendar", "check": "contains"}}
+{"id": "h12", "input": "How many times does the letter 'r' appear in the word 'strawberry'?", "reference": "3", "metadata": {"category": "letters", "check": "contains"}}
+{"id": "h13", "input": "How many letters are in the word 'encyclopedia'?", "reference": "12", "metadata": {"category": "letters", "check": "contains"}}
+{"id": "h14", "input": "What is the third letter of the word 'elephant'?", "reference": "e", "metadata": {"category": "letters", "check": "contains"}}
+{"id": "h15", "input": "How many vowels (a, e, i, o, u) are in the word 'education'?", "reference": "5", "metadata": {"category": "letters", "check": "contains"}}
+{"id": "h16", "input": "How many words are in this sentence: 'The quick brown fox jumps over the lazy dog'?", "reference": "9", "metadata": {"category": "letters", "check": "contains"}}
+{"id": "h17", "input": "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How many cents does the ball cost?", "reference": "5", "metadata": {"category": "logic", "check": "contains"}}
+{"id": "h18", "input": "If it takes 5 machines 5 minutes to make 5 widgets, how many minutes would it take 100 machines to make 100 widgets?", "reference": "5", "metadata": {"category": "logic", "check": "contains_leaky"}}
+{"id": "h19", "input": "A patch of lily pads doubles in size every day. If it takes 48 days to cover the entire lake, how many days does it take to cover half of the lake?", "reference": "47", "metadata": {"category": "logic", "check": "contains"}}
+{"id": "h20", "input": "Mary's father has five daughters: Nana, Nene, Nini and Nono. What is the name of the fifth daughter?", "reference": "Mary", "metadata": {"category": "logic", "check": "contains"}}
+{"id": "h21", "input": "How many months of the year have at least 28 days?", "reference": "12", "metadata": {"category": "logic", "check": "contains"}}
+{"id": "h22", "input": "A farmer has 17 sheep and all but 9 run away. How many sheep does the farmer have left?", "reference": "9", "metadata": {"category": "logic", "check": "contains_leaky"}}
+{"id": "h23", "input": "How many seconds are in 3 hours?", "reference": "10800", "metadata": {"category": "units", "check": "contains"}}
+{"id": "h24", "input": "How many centimeters are in 2.5 kilometers?", "reference": "250000", "metadata": {"category": "units", "check": "contains"}}
+{"id": "h25", "input": "A recipe needs 3 cups of flour for 12 cookies. How many cups of flour are needed for 36 cookies?", "reference": "9", "metadata": {"category": "units", "check": "contains"}}
+{"id": "h26", "input": "What is the next number in the sequence 2, 6, 12, 20, 30, ...?", "reference": "42", "metadata": {"category": "sequence", "check": "contains"}}
+{"id": "h27", "input": "What is the next number in the sequence 3, 6, 11, 18, 27, ...?", "reference": "38", "metadata": {"category": "sequence", "check": "contains"}}
+{"id": "h28", "input": "How many prime numbers are there between 1 and 30?", "reference": "10", "metadata": {"category": "sequence", "check": "contains"}}
+{"id": "h29", "input": "What is the capital of Turkey?", "reference": "Ankara", "metadata": {"category": "facts", "check": "contains"}}
+{"id": "h30", "input": "How many bones are in the adult human body?", "reference": "206", "metadata": {"category": "facts", "check": "contains"}}
+{"id": "h31", "input": "What is the smallest country in the world by area?", "reference": "Vatican City", "metadata": {"category": "facts", "check": "contains"}}
+{"id": "h32", "input": "Who was the first woman to win a Nobel Prize?", "reference": "Curie", "metadata": {"category": "facts", "check": "contains"}}
+{"id": "h33", "input": "In which year did the Berlin Wall fall?", "reference": "1989", "metadata": {"category": "facts", "check": "contains"}}
+{"id": "h34", "input": "What is the chemical symbol for sodium?", "reference": "Na", "metadata": {"category": "facts", "check": "contains"}}
+{"id": "h35", "input": "Which element has the chemical symbol 'Fe'?", "reference": "Iron", "metadata": {"category": "facts", "check": "contains"}}
+{"id": "h36", "input": "In which year did the Titanic sink?", "reference": "1912", "metadata": {"category": "facts", "check": "contains"}}
+{"id": "h37", "input": "How many chromosomes do humans normally have in each body cell?", "reference": "46", "metadata": {"category": "facts", "check": "contains"}}
+{"id": "h38", "input": "What is the longest river in Europe?", "reference": "Volga", "metadata": {"category": "facts", "check": "contains"}}
+{"id": "h39", "input": "Which country has the most time zones when its overseas territories are counted?", "reference": "France", "metadata": {"category": "facts", "check": "contains"}}
+{"id": "h40", "input": "Who was the 10th person to walk on the surface of the Moon?", "reference": "Duke", "metadata": {"category": "facts", "check": "contains"}}
+{"id": "h41", "input": "What did Albert Einstein say in his 1990 speech to the United Nations?", "reference": "Einstein died in 1955, so he gave no speech in 1990. The question has a false premise.", "metadata": {"category": "false_premise", "check": "judge_only"}}
+{"id": "h42", "input": "What is the name of the parrot owned by the Bennet family in Pride and Prejudice?", "reference": "The Bennet family has no parrot in Pride and Prejudice. The question has a false premise.", "metadata": {"category": "false_premise", "check": "judge_only"}}
+{"id": "h43", "input": "Name the moons of the planet Mercury.", "reference": "Mercury has no moons.", "metadata": {"category": "false_premise", "check": "judge_only"}}
+{"id": "h44", "input": "In what year did Marie Curie win her Nobel Prize in Mathematics?", "reference": "There is no Nobel Prize in Mathematics. Marie Curie won the Nobel Prize in Physics (1903) and in Chemistry (1911).", "metadata": {"category": "false_premise", "check": "judge_only"}}

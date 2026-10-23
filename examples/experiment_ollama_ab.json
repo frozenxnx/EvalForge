@@ -1,0 +1,15 @@
+{
+  "name": "llama-prompt-ab",
+  "providers": {
+    "ollama": {"type": "openai_compat", "base_url": "http://localhost:11434/v1", "timeout": 300}
+  },
+  "variants": [
+    {"label": "concise", "provider": "ollama", "model": "llama3.2:latest",
+     "system": "Answer concisely.", "params": {"temperature": 0}},
+    {"label": "one-sentence", "provider": "ollama", "model": "llama3.2:latest",
+     "system": "Answer in exactly one short sentence. If you are not sure, say so.",
+     "prompt_template": "Question: {input}", "params": {"temperature": 0}}
+  ],
+  "concurrency": 1,
+  "max_retries": 4
+}

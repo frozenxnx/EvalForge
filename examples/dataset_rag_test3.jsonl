@@ -1,0 +1,3 @@
+{"id": "q01", "input": "How many business days do refunds for monthly plans take to process?", "reference": "5", "relevant_doc_ids": ["d01"], "metadata": {"category": "lookup", "check": "contains"}}
+{"id": "q02", "input": "Within how many days of purchase can an annual plan be refunded in full?", "reference": "30", "relevant_doc_ids": ["d02"], "metadata": {"category": "confuser", "check": "contains"}}
+{"id": "q03", "input": "What restocking fee, as a percentage, applies to refunds of opened Lumen Hub devices?", "reference": "15", "relevant_doc_ids": ["d03"], "metadata": {"category": "confuser", "check": "contains"}}

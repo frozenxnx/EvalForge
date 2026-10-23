@@ -1,0 +1,38 @@
+# Example GitHub Actions workflow. NOTE: written for this project but not run on GitHub from the sandbox it was
+# developed in; every command inside it was run locally. Copy to .github/workflows/llm-eval.yml and adapt.
+name: llm-eval-gate
+on:
+  pull_request:
+    paths: ["prompts/**", "ci/**", "llmobs*/**"]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }          # the CLI is standard-library only: nothing to pip install
+
+      # 1. Smoke test of the pipeline itself with mock models: needs no secrets and no network.
+      - name: Pipeline smoke test
+        run: |
+          python -m llmobs_eval --db smoke.db ci \
+            --dataset examples/dataset_rag.jsonl --corpus examples/corpus_lumen.jsonl \
+            --config examples/ci/experiment_ci_mock.json --gate examples/ci/gate_mock.json \
+            --json gate-smoke.json
+
+      # 2. The real gate. Uncomment and point at your own config, dataset and model credentials.
+      #    Option A: the `main` and `pr` variants both run in this job (2x the calls, no stored baseline).
+      #    Option B: add --baseline-file ci/baseline.json (made with `baseline-export`) to run only the candidate.
+      # - name: Evaluate and gate
+      #   env:
+      #     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      #   run: |
+      #     python -m llmobs_eval --db ci.db ci \
+      #       --dataset ci/dataset.jsonl --config ci/experiment.json --gate ci/gate.json \
+      #       --markdown "$GITHUB_STEP_SUMMARY" --json gate-result.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: gate-results, path: "gate-*.json" }

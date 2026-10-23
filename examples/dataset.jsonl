@@ -1,0 +1,5 @@
+{"id": "refund-time", "input": "How long do refunds take?", "reference": "Refunds are processed within 5 business days.", "relevant_doc_ids": ["d1"]}
+{"id": "premium-support", "input": "Do premium plans include support?", "reference": "Yes, premium plans include priority support.", "relevant_doc_ids": ["d2"]}
+{"id": "password-rules", "input": "What are the password requirements?", "reference": "Passwords must be at least 12 characters.", "relevant_doc_ids": ["d3"]}
+{"id": "date-math", "input": "What is the date 45 days after March 1st in a non-leap year?", "reference": "April 15th"}
+{"id": "unanswerable", "input": "What is the CEO's favorite color?", "reference": "The documents do not say.", "metadata": {"expect_refusal": true}}

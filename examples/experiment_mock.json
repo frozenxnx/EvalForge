@@ -1,0 +1,12 @@
+{
+  "name": "mock-smoke-test",
+  "providers": {"mock": {"type": "mock", "latency_ms": [20, 120], "error_rate": 0.15, "seed": 7}},
+  "variants": [
+    {"label": "baseline", "provider": "mock", "model": "mock-small"},
+    {"label": "concise-prompt", "provider": "mock", "model": "mock-small",
+     "system": "Answer in one sentence.", "prompt_template": "Question: {input}"}
+  ],
+  "concurrency": 4,
+  "max_retries": 3,
+  "pricing": {"mock-small": {"input_per_mtok": 1.0, "output_per_mtok": 2.0}}
+}

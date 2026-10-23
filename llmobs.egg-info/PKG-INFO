@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: llmobs
+Version: 0.1.0
+Summary: Tracing SDK, ingestion API, and trace viewer for LLM applications
+Requires-Python: >=3.10
+Provides-Extra: server
+Requires-Dist: fastapi>=0.110; extra == "server"
+Requires-Dist: uvicorn>=0.29; extra == "server"
+Requires-Dist: pydantic>=2; extra == "server"

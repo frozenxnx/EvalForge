@@ -1,0 +1,14 @@
+{
+  "name": "pipeline-smoke-test",
+  "providers": {"mock": {"type": "mock", "latency_ms": [1, 3], "seed": 1}},
+  "variants": [
+    {"label": "main", "provider": "mock", "model": "mock-main",
+     "prompt_template": "Context:\n{context}\n\nQuestion: {input}",
+     "retriever": {"type": "bm25", "k": 3}},
+    {"label": "pr", "provider": "mock", "model": "mock-pr",
+     "prompt_template": "Context:\n{context}\n\nQuestion: {input}",
+     "retriever": {"type": "bm25", "k": 3}}
+  ],
+  "concurrency": 4,
+  "max_retries": 2
+}

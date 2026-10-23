@@ -1,0 +1,8 @@
+{
+  "description": "Smoke test of the CI wiring with mock models: identical variants must pass.",
+  "baseline": "main",
+  "metrics": {"contains": 0.10, "recall@3": 0.10, "mrr": 0.10},
+  "max_error_rate": 0.05,
+  "max_p95_ratio": 5.0,
+  "on_inconclusive": "warn"
+}

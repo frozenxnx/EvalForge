@@ -1,0 +1,20 @@
+{
+  "name": "pr-check",
+  "providers": {
+    "ollama": {"type": "openai_compat", "base_url": "http://localhost:11434/v1", "timeout": 300}
+  },
+  "variants": [
+    {"label": "main", "provider": "ollama", "model": "llama3.2:latest",
+     "system": "Answer using only the provided context. If the context does not contain the answer, reply exactly: I don't know.",
+     "prompt_template": "Context:\n{context}\n\nQuestion: {input}\nAnswer in one short sentence.",
+     "retriever": {"type": "bm25", "k": 3},
+     "params": {"temperature": 0}},
+    {"label": "pr", "provider": "ollama", "model": "llama3.2:latest",
+     "system": "Answer using only the provided context. If the context does not contain the answer, reply exactly: I don't know.",
+     "prompt_template": "Context:\n{context}\n\nQuestion: {input}\nAnswer in one short sentence.",
+     "retriever": {"type": "bm25", "k": 3},
+     "params": {"temperature": 0}}
+  ],
+  "concurrency": 1,
+  "max_retries": 4
+}

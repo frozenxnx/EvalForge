@@ -1,0 +1,20 @@
+{"id": "g01", "input": "What is the capital of Australia?", "reference": "Canberra"}
+{"id": "g02", "input": "Who wrote the novel Pride and Prejudice?", "reference": "Jane Austen"}
+{"id": "g03", "input": "What is the chemical symbol for gold?", "reference": "Au"}
+{"id": "g04", "input": "What is the 10th number in the Fibonacci sequence 1, 1, 2, 3, 5, ...?", "reference": "55"}
+{"id": "g05", "input": "What is 17 multiplied by 6?", "reference": "102"}
+{"id": "g06", "input": "What is the boiling point of water at sea level in degrees Celsius?", "reference": "100"}
+{"id": "g07", "input": "Which planet is known as the Red Planet?", "reference": "Mars"}
+{"id": "g08", "input": "In what year did World War II end?", "reference": "1945"}
+{"id": "g09", "input": "What is the largest ocean on Earth?", "reference": "The Pacific Ocean"}
+{"id": "g10", "input": "What is the square root of 144?", "reference": "12"}
+{"id": "g11", "input": "Who painted the Mona Lisa?", "reference": "Leonardo da Vinci"}
+{"id": "g12", "input": "What is the smallest prime number?", "reference": "2"}
+{"id": "g13", "input": "Which gas do plants absorb from the air for photosynthesis?", "reference": "Carbon dioxide"}
+{"id": "g14", "input": "How many days are in a leap year?", "reference": "366"}
+{"id": "g15", "input": "What is the date 45 days after March 1st in a non-leap year?", "reference": "April 15th"}
+{"id": "g16", "input": "What is the capital of Canada?", "reference": "Ottawa"}
+{"id": "g17", "input": "Which element has atomic number 1?", "reference": "Hydrogen"}
+{"id": "g18", "input": "How many sides does a hexagon have?", "reference": "Six (6)"}
+{"id": "g19", "input": "What is the longest river in Africa?", "reference": "The Nile"}
+{"id": "g20", "input": "What is 15% of 200?", "reference": "30"}

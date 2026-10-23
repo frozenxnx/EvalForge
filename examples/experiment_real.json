@@ -1,0 +1,16 @@
+{
+  "name": "claude-vs-local",
+  "providers": {
+    "anthropic": {"type": "anthropic", "api_key_env": "ANTHROPIC_API_KEY", "rps": 5},
+    "ollama": {"type": "openai_compat", "base_url": "http://localhost:11434/v1", "timeout": 300}
+  },
+  "variants": [
+    {"label": "claude-haiku", "provider": "anthropic", "model": "claude-haiku-5-5",
+     "system": "Answer concisely.", "params": {"max_tokens": 300, "temperature": 0}},
+    {"label": "local-llama", "provider": "ollama", "model": "llama3.1",
+     "system": "Answer concisely.", "params": {"temperature": 0}}
+  ],
+  "concurrency": 4,
+  "max_retries": 4,
+  "pricing": {}
+}

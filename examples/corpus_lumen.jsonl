@@ -1,0 +1,31 @@
+{"id": "d01", "title": "Refunds: monthly plans", "text": "Refunds for monthly plans are processed within 5 business days of approval. The money returns to the original payment method."}
+{"id": "d02", "title": "Refunds: annual plans", "text": "Annual plans can be refunded in full within 30 days of purchase. After 30 days, refunds are prorated for the unused months."}
+{"id": "d03", "title": "Refunds: hardware", "text": "Hardware purchases (Lumen Hub devices) can be returned within 14 days if unopened. Opened devices are refunded minus a 15% restocking fee."}
+{"id": "d04", "title": "Chargebacks", "text": "If a customer opens a chargeback with their bank, the account is suspended until the dispute is resolved. Disputes are normally resolved within 45 days."}
+{"id": "d05", "title": "Support tiers", "text": "Premium plans include priority support with a 1-hour first response time. Standard plans receive email support with a 24-hour first response time."}
+{"id": "d06", "title": "Support hours", "text": "Support is available 24/7 for Premium customers. Standard support operates Monday to Friday, 9am to 6pm UTC."}
+{"id": "d07", "title": "Password policy", "text": "Passwords must be at least 12 characters long and include one number and one symbol. Passwords expire every 180 days."}
+{"id": "d08", "title": "Two-factor authentication", "text": "Two-factor authentication is mandatory for all admin accounts. Supported methods are authenticator apps and hardware keys; SMS codes are not supported."}
+{"id": "d09", "title": "Data retention", "text": "Deleted files are kept in the trash for 30 days before permanent deletion. Backups are retained for 90 days."}
+{"id": "d10", "title": "Storage limits", "text": "The Free plan includes 5 GB of storage. The Standard plan includes 2 TB and the Premium plan includes 10 TB."}
+{"id": "d11", "title": "Pricing", "text": "The Standard plan costs $12 per user per month. The Premium plan costs $25 per user per month. Annual billing gives a 20% discount."}
+{"id": "d12", "title": "API rate limits", "text": "The API allows 100 requests per minute on the Free plan and 1,000 requests per minute on paid plans. Exceeding the limit returns HTTP status 429."}
+{"id": "d13", "title": "API authentication", "text": "API requests are authenticated with bearer tokens. Tokens expire after 24 hours and can be renewed with the refresh endpoint."}
+{"id": "d14", "title": "Uptime guarantee", "text": "Lumen guarantees 99.9% monthly uptime for paid plans. If uptime falls below that, customers receive a service credit of 10% of the monthly fee."}
+{"id": "d15", "title": "Service credits", "text": "Service credits must be requested within 30 days of the incident by contacting support. Credits are applied to the next invoice and are not paid out as cash."}
+{"id": "d16", "title": "Data regions", "text": "Data can be stored in three regions: US-East, EU-Central, and Asia-Pacific. The region is chosen when the account is created and cannot be changed later."}
+{"id": "d17", "title": "Encryption", "text": "All data is encrypted with AES-256 at rest and TLS 1.3 in transit. Customers on the Premium plan can supply their own encryption keys."}
+{"id": "d18", "title": "Sharing links", "text": "Files can be shared by link or by inviting users. Links can be set to expire after 1, 7, or 30 days."}
+{"id": "d19", "title": "Minimum team size", "text": "The Standard plan requires a minimum of 3 users. The Premium plan requires a minimum of 10 users."}
+{"id": "d20", "title": "Cancellation", "text": "Subscriptions can be cancelled at any time from the Billing page. Access continues until the end of the paid period, and no partial-month refunds are given for monthly plans."}
+{"id": "d21", "title": "Account deletion", "text": "When an account is deleted, all data is permanently removed within 14 days. Deleted accounts cannot be restored."}
+{"id": "d22", "title": "Invoices and payment terms", "text": "Invoices are emailed on the 1st of each month. Payment is due within 15 days; accounts more than 15 days overdue are downgraded to read-only."}
+{"id": "d23", "title": "Payment methods", "text": "Lumen accepts Visa, Mastercard, and American Express. Bank transfers are available only for annual Premium plans."}
+{"id": "d24", "title": "Mobile app", "text": "The mobile app is available for iOS 16 and later and Android 11 and later. Offline access requires a Standard or Premium plan."}
+{"id": "d25", "title": "Version history", "text": "Version history keeps previous versions of a file for 30 days on Standard plans and 180 days on Premium plans."}
+{"id": "d26", "title": "Audit logs", "text": "Audit logs record sign-ins, file shares, and permission changes. Logs are available on the Premium plan and are retained for 365 days."}
+{"id": "d27", "title": "Single sign-on", "text": "Single sign-on via SAML 2.0 is available on the Premium plan only. Setup requires an admin account and a verified domain."}
+{"id": "d28", "title": "Free trial", "text": "New customers get a 14-day free trial of the Premium plan. No credit card is needed to start the trial."}
+{"id": "d29", "title": "About Lumen", "text": "Lumen was founded in 2016 and is headquartered in Lisbon, Portugal. The company has about 400 employees."}
+{"id": "d30", "title": "File size limits", "text": "The maximum file size is 5 GB on the Free plan and 250 GB on paid plans. Larger files must be split before uploading."}
+{"id": "d31", "title": "System status", "text": "Real-time system status is published at status.lumen.example. Incidents are posted within 15 minutes of detection."}

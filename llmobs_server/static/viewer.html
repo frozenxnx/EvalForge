@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>llmobs</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#1c1c1e; --muted:#6b6b70; --line:#e3e3e6; --panel:#f6f6f8; --sel:#e8efff;
+          --chain:#8a8f98; --llm:#6d5bd0; --retrieval:#1f9d8b; --tool:#d98324; --embedding:#3b82c4; --err:#d64545; --good:#1f9d55; --warn:#b7791f; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#17171a; --fg:#ececf0; --muted:#9a9aa3; --line:#2c2c32; --panel:#202025; --sel:#26304a; --good:#3fb97a; --warn:#e0a53a; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:13px/1.45 system-ui,sans-serif; background:var(--bg); color:var(--fg); display:flex; height:100vh; }
+  #list { width:320px; border-right:1px solid var(--line); overflow:auto; flex:none; }
+  #main { flex:1; overflow:auto; padding:16px; min-width:0; }
+  .tabs { display:flex; border-bottom:1px solid var(--line); }
+  .tab { flex:1; padding:12px 14px; font-weight:600; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; }
+  .tab.on { color:var(--fg); border-bottom-color:var(--llm); }
+  .trace { padding:9px 14px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .trace:hover { background:var(--panel); } .trace.sel { background:var(--sel); }
+  .trace .t { font-weight:600; } .trace .m { color:var(--muted); font-size:12px; }
+  .bad { color:var(--err); } .muted { color:var(--muted); }
+  .row { display:grid; grid-template-columns:260px 1fr 70px; align-items:center; gap:8px; padding:3px 6px; cursor:pointer; border-radius:4px; }
+  .row:hover { background:var(--panel); } .row.sel { background:var(--sel); }
+  .name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .track { position:relative; height:14px; background:var(--panel); border-radius:3px; }
+  .bar { position:absolute; top:2px; height:10px; border-radius:2px; min-width:2px; }
+  .dur { text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; }
+  #detail { margin-top:18px; border-top:1px solid var(--line); padding-top:12px; }
+  pre { background:var(--panel); padding:10px; border-radius:6px; overflow:auto; max-height:260px; white-space:pre-wrap; word-break:break-word; margin:4px 0; }
+  .k { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; margin:12px 0 4px; }
+  .empty { color:var(--muted); padding:20px 14px; }
+  h2 { font-size:16px; margin:0 0 4px; } h3 { font-size:13px; margin:22px 0 6px; }
+  .ctl { margin:10px 0 14px; display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+  select { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:3px 6px; }
+  .wrap { overflow-x:auto; }
+  table { border-collapse:collapse; min-width:100%; }
+  th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); vertical-align:top; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  tr.base td { background:var(--panel); }
+  th:first-child, td:first-child { position:sticky; left:0; background:var(--bg); z-index:1; }
+  tr.base td:first-child { background:var(--panel); }
+  .ci { color:var(--muted); font-size:12px; }
+  .delta { font-size:12px; } .up { color:var(--good); } .down { color:var(--err); } .flat { color:var(--muted); }
+  .warn { color:var(--warn); margin:3px 0; }
+  details { border:1px solid var(--line); border-radius:6px; margin:6px 0; padding:6px 10px; }
+  summary { cursor:pointer; }
+  .cols { display:grid; grid-template-columns:repeat(var(--n,2),minmax(0,1fr)); gap:10px; } @media (max-width:900px) { .cols { grid-template-columns:1fr; } }
+  .chip { display:inline-block; min-width:34px; text-align:center; padding:0 6px; border-radius:9px; font-size:12px; font-weight:600; color:#fff; }
+  .s-hi { background:var(--good); } .s-mid { background:var(--warn); } .s-lo { background:var(--err); } .s-na { background:var(--muted); }
+  .sc { margin:3px 0; font-size:12px; } a.tl { color:var(--llm); font-size:11px; margin-left:8px; text-transform:none; letter-spacing:0; }
+  .doc { border-left:3px solid var(--line); padding:3px 8px; margin:4px 0; font-size:12px; }
+  .doc.rel { border-left-color:var(--good); } .doc.irr { border-left-color:var(--err); }
+  .doc .mk { font-weight:700; } .doc.rel .mk { color:var(--good); } .doc.irr .mk { color:var(--err); }
+  button.more { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:5px 12px; cursor:pointer; margin:8px 0; }
+</style>
+</head>
+<body>
+<div id="list">
+  <div class="tabs"><div class="tab on" id="tab-traces">Traces</div><div class="tab" id="tab-exp">Experiments</div></div>
+  <div id="traces"></div>
+</div>
+<div id="main"><div class="empty">Select an item.</div></div>
+<script>
+const COLORS = ["chain","llm","retrieval","tool","embedding"];
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ms = (n) => n >= 1000 ? (n/1000).toFixed(2) + " s" : n.toFixed(n < 10 ? 1 : 0) + " ms";
+const f2 = (x) => x == null ? "-" : x.toFixed(2);
+const sg = (x) => x == null ? "-" : (x >= 0 ? "+" : "") + x.toFixed(2);
+
+let mode = "traces", selectedExp = null, cmpState = {};
+
+/* ---------------- traces ---------------- */
+async function loadTraces() {
+  const r = await fetch("/v1/traces?limit=100"); const { traces } = await r.json();
+  $("#traces").innerHTML = traces.length ? traces.map(t => `
+    <div class="trace" data-id="${t.trace_id}">
+      <div class="t">${esc(t.root_name || "(root pending)")}</div>
+      <div class="m">${ms(t.duration_ms)} &middot; ${t.span_count} spans &middot; ${(t.input_tokens||0)+(t.output_tokens||0)} tok
+        ${t.error_count ? `&middot; <span class="bad">${t.error_count} error</span>` : ""}</div>
+    </div>`).join("") : '<div class="empty">No traces yet.</div>';
+  document.querySelectorAll(".trace").forEach(el => el.onclick = () => openTrace(el.dataset.id, el));
+}
+
+function depthOrder(spans) {
+  const kids = {}; spans.forEach(s => (kids[s.parent_id || "root"] ||= []).push(s));
+  const known = new Set(spans.map(s => s.span_id)), out = [];
+  const walk = (p, d) => (kids[p] || []).sort((a,b) => a.start_ns - b.start_ns).forEach(s => { out.push([s, d]); walk(s.span_id, d+1); });
+  walk("root", 0);
+  spans.filter(s => s.parent_id && !known.has(s.parent_id)).forEach(s => { out.push([s, 0]); walk(s.span_id, 1); });
+  return out;
+}
+
+async function openTrace(id, el) {
+  document.querySelectorAll(".trace").forEach(x => x.classList.toggle("sel", x === el));
+  const resp = await fetch("/v1/traces/" + id);
+  if (!resp.ok) { $("#main").innerHTML = '<div class="empty">No trace was stored for this call. Re-run the experiment with --trace-endpoint http://127.0.0.1:8000/v1/spans to capture traces.</div>'; return; }
+  const { spans } = await resp.json();
+  const t0 = Math.min(...spans.map(s => s.start_ns)), t1 = Math.max(...spans.map(s => s.end_ns || s.start_ns));
+  const total = Math.max(t1 - t0, 1), rows = depthOrder(spans);
+  $("#main").innerHTML = rows.map(([s, d]) => {
+    const left = (s.start_ns - t0) / total * 100, w = ((s.end_ns || s.start_ns) - s.start_ns) / total * 100;
+    const color = s.status === "error" ? "var(--err)" : `var(--${COLORS.includes(s.kind) ? s.kind : "chain"})`;
+    return `<div class="row" data-id="${s.span_id}">
+      <div class="name" style="padding-left:${d*14}px" title="${esc(s.name)}">${esc(s.name)}</div>
+      <div class="track"><div class="bar" style="left:${left}%;width:${w}%;background:${color}"></div></div>
+      <div class="dur">${ms(((s.end_ns || s.start_ns) - s.start_ns) / 1e6)}</div></div>`;
+  }).join("") + '<div id="detail"></div>';
+  const byId = Object.fromEntries(spans.map(s => [s.span_id, s]));
+  document.querySelectorAll(".row").forEach(r => r.onclick = () => {
+    document.querySelectorAll(".row").forEach(x => x.classList.toggle("sel", x === r));
+    const s = byId[r.dataset.id], j = (v) => esc(JSON.stringify(v, null, 2));
+    $("#detail").innerHTML = `<b>${esc(s.name)}</b> <span style="color:var(--muted)">${esc(s.kind)}</span>
+      ${s.error ? `<div class="bad">${esc(s.error)}</div>` : ""}
+      <div class="k">Input</div><pre>${j(s.input)}</pre>
+      <div class="k">Output</div><pre>${j(s.output)}</pre>
+      <div class="k">Attributes</div><pre>${j(s.attributes)}</pre>`;
+  });
+}
+
+/* ---------------- experiments ---------------- */
+async function loadExperiments() {
+  const { experiments } = await (await fetch("/v1/experiments?limit=100")).json();
+  $("#traces").innerHTML = experiments.length ? experiments.map(e => `
+    <div class="trace ${e.id === selectedExp ? "sel" : ""}" data-id="${esc(e.id)}">
+      <div class="t">${esc(e.name)}</div>
+      <div class="m">${esc(e.status)} &middot; ${esc(e.dataset_name)} &middot; ${esc(new Date(e.created_at * 1000).toLocaleString())}</div>
+    </div>`).join("") : '<div class="empty">No experiments yet. Run: python -m llmobs_eval run ...</div>';
+  document.querySelectorAll(".trace").forEach(el => el.onclick = () => { cmpState = {}; openExperiment(el.dataset.id); });
+}
+
+function cell(v, vs, ok) {
+  const s = v.scores;
+  if (!s || s.mean == null) return '<td class="muted">-</td>';
+  const ci = s.ci_low == null ? "" : ` <span class="ci">[${f2(s.ci_low)}, ${f2(s.ci_high)}]</span>`;
+  let d = "";
+  if (vs && vs.n_paired > 0 && !vs.enough_pairs) {
+    d = `<div class="delta flat">n=${vs.n_paired}: too few pairs to compare</div>`;
+  } else if (vs && vs.n_paired > 0) {
+    const arrow = vs.delta > 0 ? "&#9650;" : vs.delta < 0 ? "&#9660;" : "=";
+    const cls = vs.significant ? (vs.delta > 0 ? "up" : "down") : "flat";
+    const dci = vs.ci_low == null ? "" : ` [${sg(vs.ci_low)}, ${sg(vs.ci_high)}]`;
+    d = `<div class="delta ${cls}">${arrow} ${sg(vs.delta)}${dci}${vs.significant ? " *" : ""}</div>`;
+  }
+  return `<td><div>${f2(s.mean)}${ci} <span class="ci">n=${s.n}${ok != null && s.n < ok ? "/" + ok : ""}</span></div>${d}</td>`;
+}
+
+function renderCompare(d) {
+  const e = d.experiment, opt = (list, cur) => list.map(x => `<option value="${esc(x)}" ${x === cur ? "selected" : ""}>${esc(x)}</option>`).join("");
+  let h = `<h2>${esc(e.name)}</h2><div class="muted">${esc(e.status)} &middot; ${e.n_examples} examples &middot; dataset ${esc(e.dataset_name)} (${esc(String(e.dataset_hash).slice(0, 10))})</div>`;
+  h += `<div class="ctl"><label>Baseline <select id="sel-base">${opt(d.variants.map(v => v.variant), d.baseline)}</select></label>`;
+  if (d.metrics.length) h += `<label>Regressions by <select id="sel-metric">${opt(d.metrics, d.primary_metric)}</select></label>`;
+  h += `</div>`;
+  h += `<div class="wrap"><table><tr><th>Variant</th><th>Calls</th><th>Errors</th><th>p50</th><th>p95</th><th>Cost</th>` +
+       d.metrics.map(m => `<th>${esc(m)}</th>`).join("") + `</tr>`;
+  d.variants.forEach(v => {
+    const base = v.variant === d.baseline;
+    h += `<tr class="${base ? "base" : ""}"><td><b>${esc(v.variant)}</b>${base ? ' <span class="ci">(baseline)</span>' : ""}<div class="ci">${esc(v.model)}</div></td>` +
+         `<td>${v.ok}/${v.n}</td><td class="${v.errors ? "bad" : ""}">${v.errors}</td>` +
+         `<td>${v.p50_ms == null ? "-" : ms(v.p50_ms)}</td><td>${v.p95_ms == null ? "-" : ms(v.p95_ms)}</td>` +
+         `<td>${v.cost_usd == null ? "-" : "$" + v.cost_usd.toFixed(4)}</td>` +
+         d.metrics.map(m => cell({scores: v.scores[m]}, base ? null : v.vs_baseline[m], v.ok)).join("") + `</tr>`;
+  });
+  h += `</table></div><div class="ci" style="margin-top:6px">Brackets = 95% interval of the mean (Wilson for pass/fail metrics, bootstrap otherwise). Delta lines are paired vs the baseline on the same examples; * = interval excludes 0 (needs 10+ paired examples).</div>`;
+  (d.warnings || []).forEach(w => h += `<div class="warn">&#9888; ${esc(w)}</div>`);
+  Object.entries(d.regressions || {}).forEach(([label, reg]) => {
+    if (!reg.count) return;
+    h += `<h3>${esc(label)}: ${reg.count} example${reg.count === 1 ? "" : "s"} worse than baseline on ${esc(reg.metric)}</h3>`;
+    reg.items.forEach(it => {
+      h += `<details><summary>${esc(it.example_id)} &middot; ${f2(it.baseline_score)} &rarr; ${f2(it.candidate_score)} &middot; <span class="muted">${esc((it.input || "").slice(0, 80))}</span></summary>
+        <div class="k">Question</div><pre>${esc(it.input)}</pre>
+        <div class="k">Reference</div><pre>${esc(it.reference)}</pre>
+        <div class="cols"><div><div class="k">Baseline output</div><pre>${esc(it.baseline_output)}</pre></div>
+        <div><div class="k">Candidate output</div><pre>${esc(it.candidate_output)}</pre></div></div>
+        ${it.reason ? `<div class="k">Judge reason</div><pre>${esc(it.reason)}</pre>` : ""}</details>`;
+    });
+  });
+  return h;
+}
+
+const chip = (v) => v == null ? '<span class="chip s-na">-</span>' : `<span class="chip ${v >= 0.8 ? "s-hi" : v >= 0.4 ? "s-mid" : "s-lo"}">${f2(v)}</span>`;
+
+function renderExamples(d) {
+  if (!d.examples.length) return "";
+  let h = `<h3>Examples <span class="muted">(${d.primary_metric ? "worst first by " + esc(d.primary_metric) : "dataset order"}; showing ${d.examples.length} of ${d.total})</span></h3>`;
+  d.examples.forEach(ex => {
+    const chips = d.variants.map(v => {
+      const e = ex.variants[v], sc = e && d.primary_metric ? e.scores[d.primary_metric] : null;
+      return `<span class="muted">${esc(v)}</span> ` + (e && e.status !== "ok" ? '<span class="chip s-lo">error</span>' : chip(sc ? sc.value : null));
+    }).join(" &nbsp; ");
+    h += `<details><summary>${esc(ex.id)} &middot; ${chips} &middot; <span class="muted">${esc((ex.input || "").slice(0, 70))}</span></summary>
+      <div class="k">Question</div><pre>${esc(ex.input)}</pre><div class="k">Reference</div><pre>${esc(ex.reference)}</pre>
+      <div class="cols" style="--n:${d.variants.length}">` + d.variants.map(v => {
+        const e = ex.variants[v];
+        const tl = e.trace_id ? `<a href="#" class="tl" data-trace="${esc(e.trace_id)}">view trace</a>` : "";
+        const body = e.status === "ok" ? `<pre>${esc(e.output)}</pre>` : `<pre class="bad">${esc(e.error || e.status)}</pre>`;
+        const scores = d.metrics.map(m => {
+          const s = e.scores[m]; if (!s) return "";
+          return `<div class="sc"><span class="muted">${esc(m)}</span> ${chip(s.value)} ${s.verdict ? esc(s.verdict) : ""}${s.reason ? ` <span class="muted">&ndash; ${esc(s.reason)}</span>` : ""}</div>`;
+        }).join("");
+        const got = e.retrieved || [], missed = (ex.relevant_ids || []).filter(id => !got.some(x => x.doc_id === id));
+        // only variants that actually retrieve get a Retrieved block: a closed-book variant cannot "miss" anything
+        const docs = !e.retriever ? "" : `<div class="k">Retrieved (${esc(e.retriever)})</div>` +
+          (got.length ? got.map(x =>
+            `<div class="doc ${x.relevant === true ? "rel" : x.relevant === false ? "irr" : ""}"><span class="mk">${x.relevant === true ? "&#10003;" : x.relevant === false ? "&#10007;" : "?"}</span> <b>#${x.rank} ${esc(x.doc_id)}</b> <span class="muted">${f2(x.score)}${x.title ? " &middot; " + esc(x.title) : ""}</span><div>${esc(x.text)}</div></div>`).join("")
+            : '<div class="sc muted">nothing retrieved</div>') +
+          (missed.length ? `<div class="sc bad">Missed relevant: ${esc(missed.join(", "))}</div>` : "");
+        return `<div><div class="k">${esc(v)}${tl}</div>${body}${docs}${scores}</div>`;
+      }).join("") + `</div></details>`;
+  });
+  if (d.offset + d.examples.length < d.total) h += '<button class="more" id="more-ex">Show more</button>';
+  return h;
+}
+
+function renderJudgeCheck(d, cal) {
+  if (!d || !d.metric || !d.variants.length) return "";
+  const pct = (x) => x == null ? "-" : Math.round(x * 100) + "%";
+  let h = `<h3>Judge check <span class="muted">${esc(d.metric)} vs <b>contains</b>, on answers whose reference is a short value</span></h3>`;
+  h += '<div class="wrap"><table><tr><th>Variant</th><th>Checkable</th><th>Agree</th><th>Judge too lenient</th><th>Judge too strict</th></tr>' +
+    d.variants.map(v => `<tr><td><b>${esc(v.variant)}</b></td><td>${v.checkable}</td><td>${pct(v.agreement)}</td>` +
+      `<td class="${v.lenient ? "bad" : ""}">${v.lenient}</td><td class="${v.strict ? "bad" : ""}">${v.strict}</td></tr>`).join("") + "</table></div>";
+  h += '<div class="ci" style="margin-top:6px">Lenient = the judge credits an answer that does not contain the reference value; strict = it rejects one that does. These are cases to read, not verdicts: either side can be the wrong one.</div>';
+  if (d.items.length) {
+    h += `<details><summary>${d.items.length} disagreements to review</summary>` + d.items.map(it =>
+      `<div class="doc ${it.kind === "lenient" ? "irr" : ""}"><b>${esc(it.kind)}</b> &middot; ${esc(it.variant)} / ${esc(it.example_id)} &middot; judge ${f2(it.judge_value)} ${esc(it.judge_verdict || "")} &middot; contains ${f2(it.contains)}` +
+      `<div class="k">Question</div><div>${esc(it.input)}</div><div class="k">Reference</div><div>${esc(it.reference)}</div>` +
+      `<div class="k">Answer</div><pre>${esc(it.output)}</pre>${it.judge_reason ? `<div class="muted">Judge: ${esc(it.judge_reason)}</div>` : ""}</div>`).join("") + "</details>";
+  }
+  const c = cal && cal.headline ? cal[cal.headline] : null;
+  if (c) {
+    const ci = c.binary_kappa_ci && c.binary_kappa_ci[0] != null ? ` [${f2(c.binary_kappa_ci[0])}, ${f2(c.binary_kappa_ci[1])}]` : "";
+    h += `<div class="k">Against your human labels</div><div>${c.n} labels (${esc(cal.headline)} sample): the judge agrees with you ${pct(c.agreement)} of the time; kappa ${f2(c.binary_kappa)}${ci} on correct-or-not; leniency bias ${sg(c.bias)} (positive = more lenient than you).</div>`;
+    (cal.warnings || []).forEach(w => h += `<div class="warn">&#9888; ${esc(w)}</div>`);
+  } else {
+    h += `<div class="muted" style="margin-top:8px">No human labels yet. Label a random sample with <code>python -m llmobs_eval label ${esc(d.experiment.id)}</code> to measure how far this judge can be trusted.</div>`;
+  }
+  return h;
+}
+
+async function loadJudgeCheck(id) {
+  const base = `/v1/experiments/${encodeURIComponent(id)}`;
+  const [a, b] = await Promise.all([fetch(base + "/judge-check"), fetch(base + "/calibration")]);
+  if (!a.ok) return;
+  $("#judgecheck").innerHTML = renderJudgeCheck(await a.json(), b.ok ? await b.json() : null);
+}
+
+function showTrace(id) { setMode("traces"); openTrace(id, null); }
+
+async function loadExamples(id) {
+  const q = new URLSearchParams({ limit: cmpState.limit || 25 }); if (cmpState.metric) q.set("metric", cmpState.metric);
+  const r = await fetch(`/v1/experiments/${encodeURIComponent(id)}/examples?${q}`);
+  if (!r.ok) return;
+  $("#examples").innerHTML = renderExamples(await r.json());
+  const more = $("#more-ex"); if (more) more.onclick = () => { cmpState.limit = (cmpState.limit || 25) + 25; loadExamples(id); };
+  document.querySelectorAll("a.tl").forEach(a => a.onclick = (ev) => { ev.preventDefault(); showTrace(a.dataset.trace); });
+}
+
+async function openExperiment(id) {
+  selectedExp = id;
+  document.querySelectorAll(".trace").forEach(x => x.classList.toggle("sel", x.dataset.id === id));
+  const q = new URLSearchParams(); if (cmpState.baseline) q.set("baseline", cmpState.baseline); if (cmpState.metric) q.set("metric", cmpState.metric);
+  const r = await fetch(`/v1/experiments/${encodeURIComponent(id)}/compare?${q}`);
+  if (!r.ok) { $("#main").innerHTML = `<div class="empty bad">${esc((await r.json()).detail)}</div>`; return; }
+  $("#main").innerHTML = renderCompare(await r.json()) + '<div id="judgecheck"></div><div id="examples"></div>';
+  const b = $("#sel-base"), m = $("#sel-metric");
+  if (b) b.onchange = () => { cmpState.baseline = b.value; openExperiment(id); };
+  if (m) m.onchange = () => { cmpState.metric = m.value; openExperiment(id); };
+  await loadJudgeCheck(id);
+  await loadExamples(id);
+}
+
+/* ---------------- shell ---------------- */
+function setMode(m) {
+  mode = m; selectedExp = null; cmpState = {};
+  $("#tab-traces").classList.toggle("on", m === "traces"); $("#tab-exp").classList.toggle("on", m === "exp");
+  $("#main").innerHTML = '<div class="empty">Select an item.</div>';
+  loadList();
+}
+const loadList = () => (mode === "traces" ? loadTraces() : loadExperiments());
+$("#tab-traces").onclick = () => setMode("traces");
+$("#tab-exp").onclick = () => setMode("exp");
+loadList(); setInterval(loadList, 5000);
+if (typeof module !== "undefined") module.exports = { renderCompare, renderExamples, renderJudgeCheck };
+</script>
+</body>
+</html>
