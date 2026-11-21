@@ -33,11 +33,13 @@ class Completion:
 
 class ProviderError(Exception):
     def __init__(self, message: str, status: Optional[int] = None,
-                 retry_after: Optional[float] = None, retryable: bool = False) -> None:
+                 retry_after: Optional[float] = None, retryable: bool = False,
+                 kind: Optional[str] = None) -> None:
         super().__init__(message)
         self.status = status
         self.retry_after = retry_after
         self.retryable = retryable
+        self.kind = kind          # "timeout" | "connection" | None (an HTTP answer or something else)
         self.attempts = 1
 
 
@@ -68,7 +70,12 @@ def _post_json(url: str, headers: Dict[str, str], body: Dict[str, Any], timeout:
         ) from None
     except (urllib.error.URLError, TimeoutError, ConnectionError, socket.timeout) as exc:
         reason = getattr(exc, "reason", exc)
-        raise ProviderError(f"cannot reach {url}: {reason}", retryable=True) from None
+        if isinstance(exc, (TimeoutError, socket.timeout)) or isinstance(reason, (TimeoutError, socket.timeout)):
+            raise ProviderError(
+                f"timed out after {timeout:g}s waiting for {url}: the server accepted the request but did not answer "
+                "(still loading the model, busy with earlier requests, or reasoning for a long time)",
+                retryable=True, kind="timeout") from None
+        raise ProviderError(f"cannot reach {url}: {reason}", retryable=True, kind="connection") from None
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
@@ -136,6 +143,53 @@ class AnthropicProvider(Provider):
                           data.get("stop_reason"))
 
 
+class OllamaProvider(Provider):
+    """Ollama's native /api/chat (not the OpenAI-compatible endpoint).
+
+    It can switch a reasoning model's thinking off (`think: false`), keeps the model loaded between calls
+    (`keep_alive`, so it is not reloaded after Ollama's short default idle timeout) and reports exact token
+    counts. `params` become Ollama `options` (temperature, num_predict, num_ctx ...); `max_tokens` is accepted
+    as an alias for `num_predict`, and `think` / `keep_alive` in `params` override the provider's settings.
+    """
+
+    def __init__(self, base_url: str = "http://localhost:11434", timeout: float = 60.0,
+                 think: Optional[bool] = None, keep_alive: Optional[str] = "30m") -> None:
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+        self.think = think
+        self.keep_alive = keep_alive
+
+    def complete(self, model, messages, params):
+        options = dict(params)
+        think = options.pop("think", self.think)
+        keep_alive = options.pop("keep_alive", self.keep_alive)
+        if "max_tokens" in options:
+            options["num_predict"] = options.pop("max_tokens")
+        body: Dict[str, Any] = {"model": model, "messages": messages, "stream": False}
+        if think is not None:
+            body["think"] = think
+        if keep_alive:
+            body["keep_alive"] = keep_alive
+        if options:
+            body["options"] = options
+        data = _post_json(f"{self.base_url}/api/chat", {}, body, self.timeout)
+        msg = data.get("message")
+        if not isinstance(msg, dict):
+            raise ProviderError(f"unexpected response shape: {str(data)[:200]}")
+        return Completion(msg.get("content") or "", data.get("prompt_eval_count"), data.get("eval_count"),
+                          data.get("done_reason"))
+
+    def embed(self, model, texts):
+        body: Dict[str, Any] = {"model": model, "input": texts}
+        if self.keep_alive:
+            body["keep_alive"] = self.keep_alive
+        data = _post_json(f"{self.base_url}/api/embed", {}, body, self.timeout)
+        vecs = data.get("embeddings")
+        if not isinstance(vecs, list) or len(vecs) != len(texts):
+            raise ProviderError(f"unexpected embeddings response: {str(data)[:200]}")
+        return [list(map(float, v)) for v in vecs]
+
+
 class MockProvider(Provider):
     """Deterministic, keyless provider for tests, CI and demos."""
 
@@ -188,4 +242,7 @@ def build_provider(name: str, spec: Mapping[str, Any], env: Mapping[str, str] = 
         return AnthropicProvider(key, spec.get("base_url", "https://api.anthropic.com"), timeout)
     if kind == "openai_compat":
         return OpenAICompatProvider(spec.get("base_url", "https://api.openai.com/v1"), key, timeout)
-    raise ConfigError(f"provider {name!r}: unknown type {kind!r} (use mock, anthropic, openai_compat)")
+    if kind == "ollama":
+        return OllamaProvider(spec.get("base_url", "http://localhost:11434"), timeout, spec.get("think"),
+                              spec.get("keep_alive", "30m"))
+    raise ConfigError(f"provider {name!r}: unknown type {kind!r} (use mock, anthropic, openai_compat, ollama)")

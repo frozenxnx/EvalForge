@@ -77,10 +77,13 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual((first["baseline_output"], first["candidate_output"]), ("(output not recorded)", "(output not recorded)"))
 
     def test_a_significant_drop_inside_the_tolerance_passes(self):
-        a, b = side("a", [1.0] * 200), side("b", [0.0] * 4 + [1.0] * 196)
-        self.assertEqual(check(run_gate(a, b, rules({"m": {"max_drop": 0.03}})))["verdict"], "pass")
-        r = run_gate(a, b, rules({"m": {"max_drop": 0.0}}))                    # same data, no tolerance
-        self.assertEqual((check(r)["delta"], r["status"]), (-0.02, "fail"))
+        # 8 zeros in 200 (a 0.04 drop) is unambiguously significant: P(a resample misses all 8) is about 0.03%.
+        a, b = side("a", [1.0] * 200), side("b", [0.0] * 8 + [1.0] * 192)
+        within = run_gate(a, b, rules({"m": {"max_drop": 0.05}}))
+        self.assertEqual((check(within)["verdict"], within["status"]), ("pass", "pass"))
+        self.assertLess(check(within)["ci_high"], 0)                           # significant, yet allowed
+        strict = run_gate(a, b, rules({"m": {"max_drop": 0.0}}))               # same data, no tolerance
+        self.assertEqual((check(strict)["delta"], strict["status"]), (-0.04, "fail"))
 
     def test_a_drop_that_could_be_noise_is_inconclusive_and_says_how_much_it_can_resolve(self):
         r = run_gate(side("a", [1.0] * 12), side("b", [1.0] * 10 + [0.0] * 2), rules())
@@ -163,6 +166,17 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(both["status"], "fail")
         broken = run_gate(a, b, rules({"m": 0.03, "missing": 0.03}))
         self.assertEqual(broken["status"], "error")
+
+    def test_the_verdict_depends_on_the_data_not_on_what_the_runs_are_called(self):
+        a_vals, b_vals = [1.0] * 30 + [0.0] * 10, [1.0] * 24 + [0.0] * 16
+        reference = run_gate(side("base", a_vals), side("pr", b_vals), rules())
+        for a_label, b_label in (("main", "feature-x"), ("base (snapshot 2026-01-01)", "pr"),
+                                 ("base (snapshot 2031-12-31)", "candidate")):
+            other = run_gate(side(a_label, a_vals), side(b_label, b_vals), rules())
+            for key in ("delta", "ci_low", "ci_high", "n_pairs", "verdict"):
+                self.assertEqual(check(other)[key], check(reference)[key], (a_label, key))
+        different = run_gate(side("base", a_vals), side("pr", b_vals[:-1] + [1.0]), rules())
+        self.assertNotEqual(check(different)["delta"], check(reference)["delta"])        # real changes still show
 
     def test_bonferroni_tightens_alpha_and_results_are_deterministic(self):
         a, b = side("a", [1.0] * 40), side("b", [1.0] * 30 + [0.0] * 10)
@@ -369,6 +383,20 @@ class SnapshotTests(unittest.TestCase):
         for key in ("baseline_mean", "candidate_mean", "delta", "ci_low", "ci_high", "n_pairs", "verdict"):
             self.assertEqual(f[key], v[key], key)
         self.assertEqual(via_file["status"], "fail")
+
+    def test_the_snapshot_date_never_changes_the_numbers(self):
+        export_snapshot(self.store, self.a, "base", self.path)
+        b = seed(self.store, n=20, n_wrong=8)
+        evaluate_experiment(self.store, b)
+        results = []
+        for created in ("2024-02-29 10:00:00", "2026-10-27 23:59:59", "2031-01-01 00:00:00"):
+            snap = json.load(open(self.path))
+            snap["created"] = created
+            json.dump(snap, open(self.path, "w"))
+            rep = gate_experiment(self.store, b, self.rules, baseline_file=self.path, candidates=["cand"])["reports"][0]
+            c = check(rep, "contains")
+            results.append((c["delta"], c["ci_low"], c["ci_high"], c["verdict"]))
+        self.assertEqual(len(set(results)), 1)
 
     def test_a_different_dataset_is_refused_unless_explicitly_allowed(self):
         export_snapshot(self.store, self.a, "base", self.path)

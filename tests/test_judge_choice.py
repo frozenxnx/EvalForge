@@ -243,7 +243,7 @@ class PartialScoringTests(unittest.TestCase):
     def test_viewer_marks_partial_coverage_and_tiny_deltas(self):
         store, exp = self.partial_experiment()
         h = node_render("renderCompare", compare_payload(store, exp, n_boot=100))
-        self.assertIn("n=3/20", h)
+        self.assertIn(" 3/20</span>", h)                                        # judge scored 3 of 20 answers
         self.assertIn("n=3: too few pairs to compare", h)
         self.assertNotIn("undefined", h)
         self.assertNotIn("NaN", h)

@@ -51,6 +51,8 @@ def compare_payload(store: ExperimentStore, experiment_id: str, baseline: Option
         else:
             scores.setdefault(s["metric"], {}).setdefault(s["variant"], {})[s["example_id"]] = (s["value"], s["detail"])
     metrics = sorted(set(scores) | set(nulls), key=_rank)
+    hidden = store.hidden_metrics(experiment_id)
+    metrics = [m for m in metrics if m not in hidden or m == metric]          # asking for it by name overrides hiding
     if metric and metrics and metric not in metrics:
         raise ValueError(f"unknown metric {metric!r}; available: {metrics}")
     primary = metric or default_metric(metrics)
@@ -196,7 +198,8 @@ def examples_payload(store: ExperimentStore, experiment_id: str, metric: Optiona
     for s in store.get_scores(experiment_id):
         found.add(s["metric"])
         table.setdefault(s["example_id"], {}).setdefault(s["variant"], {})[s["metric"]] = (s["value"], s["detail"] or {})
-    metrics = sorted(found, key=_rank)
+    hidden = store.hidden_metrics(experiment_id)
+    metrics = [m for m in sorted(found, key=_rank) if m not in hidden or m == metric]
     if metric and metrics and metric not in metrics:
         raise ValueError(f"unknown metric {metric!r}; available: {metrics}")
     primary = metric or default_metric(metrics)

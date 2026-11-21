@@ -30,8 +30,11 @@ def _clip(s: Optional[str], n: int = 600) -> Optional[str]:
     return s if s is None or len(s) <= n else s[:n] + "..."
 
 
-def judge_metrics(store: ExperimentStore, experiment_id: str) -> List[str]:
-    return sorted({s["metric"] for s in store.get_scores(experiment_id) if s["metric"].startswith("judge:")})
+def judge_metrics(store: ExperimentStore, experiment_id: str, include: Optional[str] = None) -> List[str]:
+    """Judge metrics, except hidden ones; a hidden metric is still available when asked for by name (`include`)."""
+    hidden = store.hidden_metrics(experiment_id)
+    return sorted({s["metric"] for s in store.get_scores(experiment_id)
+                   if s["metric"].startswith("judge:") and (s["metric"] not in hidden or s["metric"] == include)})
 
 
 def _pick_metric(available: List[str], requested: Optional[str]) -> Optional[str]:
@@ -53,7 +56,7 @@ def judge_check_payload(store: ExperimentStore, experiment_id: str, metric: Opti
     """`only` restricts the check to those (variant, example_id) pairs, so several judges that scored
     different subsets can be compared on the same answers."""
     exp = store.get_experiment(experiment_id)
-    available = judge_metrics(store, experiment_id)
+    available = judge_metrics(store, experiment_id, include=metric)
     out: Dict[str, Any] = {
         "experiment": {"id": exp["id"], "name": exp["name"]}, "available": available, "metric": None,
         "variants": [], "totals": {"checkable": 0, "agree": 0, "lenient": 0, "strict": 0, "agreement": None},
@@ -154,7 +157,7 @@ def _stats(pairs: List[Tuple[float, float, str]], n_boot: int, seed: int) -> Opt
 def calibration_payload(store: ExperimentStore, experiment_id: str, metric: Optional[str] = None,
                         labeler: Optional[str] = None, n_boot: int = 1000) -> Dict[str, Any]:
     exp = store.get_experiment(experiment_id)
-    available = judge_metrics(store, experiment_id)
+    available = judge_metrics(store, experiment_id, include=metric)
     chosen = _pick_metric(available, metric)
     out: Dict[str, Any] = {"experiment": {"id": exp["id"], "name": exp["name"]}, "available": available,
                            "metric": chosen, "n_labels": 0, "all": None, "random": None, "headline": None,
@@ -228,7 +231,7 @@ def pick_label_items(store: ExperimentStore, experiment_id: str, metric: Optiona
     `disagreements` picks only judge/contains disagreements, for finding the judge's mistakes."""
     if sample not in ("random", "disagreements"):
         raise ValueError("sample must be 'random' or 'disagreements'")
-    available = judge_metrics(store, experiment_id)
+    available = judge_metrics(store, experiment_id, include=metric)
     chosen = _pick_metric(available, metric)
     if chosen is None:
         raise ValueError("no judge scores yet: run `evaluate --judge PROVIDER:MODEL` first")

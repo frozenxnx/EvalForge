@@ -23,6 +23,7 @@ from .store import ExperimentStore
 
 RETRIEVER_TYPES = ("bm25", "embedding", "oracle")
 ABORT_AFTER_CONNECTION_FAILURES = 5
+ABORT_AFTER_TIMEOUTS = 3
 _SLOT = re.compile(r"\{(input|context)\}")
 
 
@@ -145,6 +146,7 @@ def run_experiment(
         provider, limiter = built[variant["provider"]], limiters[variant["provider"]]
         started = time.perf_counter()
         unrecorded: Optional[str] = None
+        unrecorded_kind: Optional[str] = None
         last_latency: List[float] = []
         rec: Dict[str, Any] = {"experiment_id": experiment_id, "variant": variant["label"],
                                "example_id": ex.id}
@@ -192,7 +194,7 @@ def run_experiment(
                 if exc.status is None and exc.retryable:
                     # No HTTP answer at all (connection refused, DNS failure, timeout). That says nothing about the
                     # candidate, so it is NOT recorded: results are immutable, and `resume` must be able to redo it.
-                    unrecorded = str(exc)
+                    unrecorded, unrecorded_kind = str(exc), exc.kind
                 else:
                     rec.update(status="error", error=str(exc)[:500], attempts=exc.attempts)
             except Exception as exc:  # a bug in an adapter must not abort the whole experiment
@@ -202,7 +204,8 @@ def run_experiment(
                 infra["consecutive"] += 1
                 infra["total"] += 1
                 infra["first"] = infra["first"] or unrecorded
-                if infra["consecutive"] >= ABORT_AFTER_CONNECTION_FAILURES:
+                limit = ABORT_AFTER_TIMEOUTS if unrecorded_kind == "timeout" else ABORT_AFTER_CONNECTION_FAILURES
+                if infra["consecutive"] >= limit:
                     abort.set()
             return
         with infra_lock:

@@ -121,6 +121,11 @@ CREATE TABLE IF NOT EXISTS labels (
     created_at    REAL NOT NULL,
     PRIMARY KEY (experiment_id, variant, example_id, labeler)
 );
+CREATE TABLE IF NOT EXISTS hidden_metrics (
+    experiment_id TEXT NOT NULL,
+    metric        TEXT NOT NULL,
+    PRIMARY KEY (experiment_id, metric)
+);
 CREATE TRIGGER IF NOT EXISTS results_no_update BEFORE UPDATE ON results
 BEGIN SELECT RAISE(ABORT, 'results are immutable'); END;
 CREATE TRIGGER IF NOT EXISTS results_no_delete BEFORE DELETE ON results
@@ -328,3 +333,19 @@ class ExperimentStore:
             sql, params = sql + " AND labeler = ?", params + [labeler]
         with self._lock:
             return [dict(r) for r in self._conn.execute(sql + " ORDER BY created_at", params)]
+
+    # -- hidden metrics: a view preference, so a retired judge can disappear without deleting its scores -----
+    def hide_metric(self, exp_id: str, metric: str) -> None:
+        with self._lock:
+            self._conn.execute("INSERT OR IGNORE INTO hidden_metrics VALUES (?, ?)", (exp_id, metric))
+            self._conn.commit()
+
+    def unhide_metric(self, exp_id: str, metric: str) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM hidden_metrics WHERE experiment_id = ? AND metric = ?", (exp_id, metric))
+            self._conn.commit()
+
+    def hidden_metrics(self, exp_id: str) -> Set[str]:
+        with self._lock:
+            rows = self._conn.execute("SELECT metric FROM hidden_metrics WHERE experiment_id = ?", (exp_id,)).fetchall()
+        return {r["metric"] for r in rows}

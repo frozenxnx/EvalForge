@@ -1,0 +1,3 @@
+{
+  "ollama-native": {"type": "ollama", "base_url": "http://localhost:11434", "think": false, "keep_alive": "30m", "timeout": 300}
+}

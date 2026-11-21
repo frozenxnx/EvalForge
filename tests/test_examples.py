@@ -168,9 +168,8 @@ class ViewerExamplesTests(unittest.TestCase):
         exp = seed(store)
         evaluate_experiment(store, exp, judge=JUDGE, providers={"m": ScriptedJudge()}, sleep=NO_SLEEP)
         h = node_render("renderExamples", examples_payload(store, exp, limit=10))
-        self.assertEqual(h.count("<details>"), 10)
-        for needle in ("worst first by judge:judge-x", "showing 10 of 20", "chip s-lo", "chip s-hi",
-                       "judged wrong 0", "incorrect", 'class="tl"', 'id="more-ex"', "wrong 0", "answer 0",
+        self.assertEqual(h.count("<details "), 10)
+        for needle in ("chip s-lo", "chip s-hi", "incorrect", 'class="tl"', 'data-act="more-examples"',
                        'style="--n:2"', "Reference"):
             self.assertIn(needle, h)
         for bad in ("undefined", "NaN"):

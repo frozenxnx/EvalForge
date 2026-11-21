@@ -10,6 +10,10 @@ from .providers import ProviderError
 
 T = TypeVar("T")
 
+# A timeout is ambiguous: the server took the request and may still be working on it. Retrying only adds a second
+# request to its queue (and a 5-minute timeout retried 4 times is 25 minutes), so a timed-out call gets one more try.
+MAX_TIMEOUT_RETRIES = 1
+
 
 class RateLimiter:
     """Spaces calls at most `rps` per second across all threads. rps=None disables it."""
@@ -39,12 +43,16 @@ def call_with_retries(
     A server-provided Retry-After wins over our own backoff. Returns (result, attempts).
     On final failure the ProviderError is re-raised with `.attempts` set.
     """
-    attempt = 0
+    attempt = timeouts = 0
     while True:
         try:
             return fn(), attempt + 1
         except ProviderError as exc:
             exc.attempts = attempt + 1
+            if exc.kind == "timeout":
+                timeouts += 1
+                if timeouts > MAX_TIMEOUT_RETRIES:
+                    raise
             if not exc.retryable or attempt >= max_retries:
                 raise
             if exc.retry_after is not None:

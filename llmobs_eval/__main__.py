@@ -4,25 +4,58 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from typing import Optional
 
 import llmobs
 
 from . import (ConfigError, DatasetError, ExperimentStore, ProviderError, calibration_payload, compare_payload,
-               create_experiment, evaluate_experiment, export_snapshot, format_calibration, format_compare,
+               create_experiment, evaluate_experiment, export_snapshot, format_probe, probe_judge, format_calibration, format_compare,
                format_gate, format_judge_check, format_judge_table, format_table, gate_experiment, gate_markdown,
                judge_check_payload, judge_table_payload, label_session, load_corpus_jsonl, load_gate_config,
                load_jsonl, normalize_config, parse_rules, pick_label_items, record_calibration, run_experiment,
                side_from_snapshot, summarize)
 from .gate import Side, check_compatible
 from .judge import judge_metric_name
+from .patterns import failure_patterns, format_patterns
 
 
-def _progress(done: int, total: int) -> None:
-    sys.stderr.write(f"\r  {done}/{total} calls")
-    sys.stderr.flush()
-    if done == total:
-        sys.stderr.write("\n")
+def _dur(seconds: float) -> str:
+    s = int(round(seconds))
+    return f"{s}s" if s < 60 else (f"{s // 60}m{s % 60:02d}s" if s < 3600 else f"{s // 3600}h{(s % 3600) // 60:02d}m")
+
+
+class _Progress:
+    """`  37/118 calls  (6m10s elapsed, ~13m left)`: a long run should say how long it will take."""
+
+    def __init__(self) -> None:
+        self.start = time.monotonic()
+
+    def __call__(self, done: int, total: int) -> None:
+        elapsed = time.monotonic() - self.start
+        eta = f", ~{_dur(elapsed / done * (total - done))} left" if 0 < done < total else ""
+        sys.stderr.write(f"\r  {done}/{total} calls  ({_dur(elapsed)} elapsed{eta})   ")
+        sys.stderr.flush()
+        if done == total:
+            sys.stderr.write("\n")
+
+
+def _load_extra_providers(path: Optional[str]) -> Optional[dict]:
+    """--extra-providers FILE: provider specs usable for this evaluation only (e.g. a native Ollama judge)."""
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        raise ConfigError(f"--extra-providers file not found: {path}") from None
+    except json.JSONDecodeError as exc:
+        raise ConfigError(f"{path}: invalid JSON ({exc.msg})") from None
+    data = data.get("providers", data) if isinstance(data, dict) else data
+    if not isinstance(data, dict) or not data or any(not isinstance(v, dict) for v in data.values()):
+        raise ConfigError(f"{path}: expected an object mapping provider names to specs, "
+                          'e.g. {"ollama-native": {"type": "ollama", "think": false}}')
+    return data
 
 
 def _trace(args) -> None:
@@ -76,6 +109,12 @@ def _add_eval_args(p) -> None:
     p.add_argument("--judge-suffix", help="text appended to every judge prompt, e.g. /no_think for qwen3 models")
     p.add_argument("--no-correctness", action="store_true",
                    help="with --judge: skip the correctness grade (e.g. to run only --faithfulness)")
+    p.add_argument("--extra-providers", metavar="FILE",
+                   help="JSON of extra provider specs for this evaluation only, e.g. examples/providers_ollama_native.json")
+    p.add_argument("--concurrency", type=int, help="parallel judge calls (default: the experiment's setting)")
+    p.add_argument("--judge-timeout", type=float, metavar="SECONDS",
+                   help="per-call timeout for the judge/embedding provider (the experiment's is often 300s, "
+                        "so a stuck server costs minutes per answer)")
 
 
 def _print_eval_stats(res: dict) -> None:
@@ -178,6 +217,12 @@ def main(argv=None) -> int:
     _add_eval_args(ev)
     ev.add_argument("--only-labeled", action="store_true",
                     help="judge only the answers you have labeled: a cheap way to test another judge against your labels")
+    ev.add_argument("--max-items", type=int, metavar="N",
+                    help="judge at most N answers in this run; run again to continue (every score is saved as it is made)")
+    ev.add_argument("--probe", type=int, nargs="?", const=3, default=0, metavar="N",
+                    help="time N (default 3) real judge calls with these settings, project the total, store nothing")
+    ev.add_argument("--probe-timeout", type=float, default=60.0, metavar="SECONDS",
+                    help="with --probe: give up on a call after this long (default 60)")
     ev.add_argument("--trace-endpoint")
     ev.add_argument("--baseline")
     cp = sub.add_parser("compare", help="compare variants with confidence intervals")
@@ -196,6 +241,10 @@ def main(argv=None) -> int:
                     help="random = unbiased calibration set; disagreements = hunt for the judge's mistakes")
     lb.add_argument("--labeler", default="human")
     lb.add_argument("--seed", type=int, default=0)
+    mt = sub.add_parser("metrics", help="list, hide or unhide an experiment's metrics (scores are never deleted)")
+    mt.add_argument("experiment_id")
+    mt.add_argument("action", choices=["list", "hide", "unhide"])
+    mt.add_argument("names", nargs="*", help="metric names, e.g. judge:qwen3:4b")
     cl = sub.add_parser("calibrate", help="agreement, kappa and leniency bias of the judge against your labels")
     cl.add_argument("experiment_id")
     cl.add_argument("--metric")
@@ -215,6 +264,19 @@ def main(argv=None) -> int:
         sp.add_argument("--json", help="write the full result as JSON")
         sp.add_argument("--markdown", help="write a summary for a pull request / $GITHUB_STEP_SUMMARY")
         sp.add_argument("--top", type=int, default=5, help="worst regressions to list per metric")
+    fp = sub.add_parser("failures", help="where do the failures concentrate? groups them and tests each group against chance")
+    fp.add_argument("experiment_id")
+    fp.add_argument("--variant", help="variant to analyse (default: the first one after the baseline, which defaults to the first variant)")
+    fp.add_argument("--baseline", help="analyse NEW failures only: examples this variant passes and --variant fails")
+    fp.add_argument("--metric", help="metric that defines a failure (default: contains if scored, else judge/token_f1)")
+    fp.add_argument("--threshold", type=float, default=0.5, help="a failure is a score below this (default 0.5)")
+    fp.add_argument("--group-by", default="category", help="dataset metadata key to group by (default: category)")
+    fp.add_argument("--no-cluster", action="store_true", help="skip the similar-question clusters")
+    fp.add_argument("--clusters", type=int, metavar="K", help="number of clusters (default: from the number of examples)")
+    fp.add_argument("--embed", help="PROVIDER:MODEL to cluster by embeddings instead of tf-idf, e.g. ollama:nomic-embed-text")
+    fp.add_argument("--extra-providers", metavar="FILE")
+    fp.add_argument("--top", type=int, default=12, help="failing examples to keep per group")
+    fp.add_argument("--json", help="write the full analysis as JSON")
     be = sub.add_parser("baseline-export", help="save a variant's per-example scores as a committable baseline")
     be.add_argument("experiment_id")
     be.add_argument("--variant", required=True)
@@ -247,25 +309,59 @@ def main(argv=None) -> int:
             corpus = load_corpus_jsonl(args.corpus) if args.corpus else None
             exp_id = create_experiment(store, dataset, config, args.name, corpus)
             print(f"created {exp_id}  ({len(dataset.examples)} examples, dataset sha256 {dataset.content_hash[:12]})")
-            _finish(store, exp_id, run_experiment(store, exp_id, progress=_progress))
+            _finish(store, exp_id, run_experiment(store, exp_id, progress=_Progress()))
         elif args.cmd == "resume":
             _trace(args)
-            _finish(store, args.experiment_id, run_experiment(store, args.experiment_id, progress=_progress))
+            _finish(store, args.experiment_id, run_experiment(store, args.experiment_id, progress=_Progress()))
         elif args.cmd == "report":
             print(format_table(summarize(store, args.experiment_id)))
         elif args.cmd == "evaluate":
             _trace(args)
+            extra = _load_extra_providers(args.extra_providers)
+            if args.probe:
+                judge = _judge_spec(args)
+                if judge is None:
+                    raise ConfigError("--probe needs --judge PROVIDER:MODEL")
+                print(format_probe(probe_judge(store, args.experiment_id, judge, n=args.probe,
+                                               extra_providers=extra, concurrency=args.concurrency,
+                                               timeout=args.judge_timeout or args.probe_timeout)))
+                return 0
             res = evaluate_experiment(
                 store, args.experiment_id, lexical=not args.no_lexical, retrieval=not args.no_retrieval,
                 faithfulness=args.faithfulness, correctness=not args.no_correctness, only_labeled=args.only_labeled,
-                judge=_judge_spec(args),
-                embed=_spec(args.embed) if args.embed else None, progress=_progress)
+                judge=_judge_spec(args), embed=_spec(args.embed) if args.embed else None, progress=_Progress(),
+                extra_providers=extra, max_items=args.max_items, concurrency=args.concurrency,
+                timeout=args.judge_timeout)
             _print_eval_stats(res)
             print()
             print(format_compare(compare_payload(store, args.experiment_id, args.baseline)))
             _flush_tracing()
         elif args.cmd == "compare":
             print(format_compare(compare_payload(store, args.experiment_id, args.baseline, args.metric)))
+        elif args.cmd == "metrics":
+            store.get_experiment(args.experiment_id)                               # KeyError for an unknown experiment
+            coverage = {}
+            for sc in store.get_scores(args.experiment_id):
+                c = coverage.setdefault(sc["metric"], [0, 0])
+                c[1] += 1
+                c[0] += sc["value"] is not None
+            if args.action != "list":
+                if not args.names:
+                    raise ConfigError("name at least one metric, e.g. judge:qwen3:4b")
+                unknown = [n for n in args.names if n not in coverage]
+                if unknown:
+                    raise ConfigError(f"unknown metric(s) {unknown}; this experiment has {sorted(coverage)}")
+                for n in args.names:
+                    (store.hide_metric if args.action == "hide" else store.unhide_metric)(args.experiment_id, n)
+            hidden = store.hidden_metrics(args.experiment_id)
+            answers = sum(1 for r in store.get_results(args.experiment_id) if r["status"] == "ok")
+            width = max([len(m) for m in coverage] + [6])
+            print(f"{'metric'.ljust(width)}  status   scored")
+            for m in sorted(coverage):
+                print(f"{m.ljust(width)}  {'hidden' if m in hidden else 'shown ':<7}  {coverage[m][0]} of {answers} answers")
+            if hidden:
+                print("\nhidden metrics are kept in the database but left out of tables and comparisons; "
+                      "ask for one by name (--metric) or run `metrics <id> unhide NAME`")
         elif args.cmd == "judge-check":
             print(format_judge_check(judge_check_payload(store, args.experiment_id, args.metric, args.top)))
         elif args.cmd == "label":
@@ -294,6 +390,17 @@ def main(argv=None) -> int:
             code = _emit_gate(gate_experiment(store, args.experiment_id, rules, baseline_label=args.baseline,
                                               candidates=args.candidate, baseline_file=args.baseline_file,
                                               allow_dataset_mismatch=args.allow_dataset_mismatch, top_k=args.top), args)
+        elif args.cmd == "failures":
+            labels = [v["label"] for v in store.get_experiment(args.experiment_id)["config"]["variants"]]
+            variant = args.variant or next((l for l in labels if l != (args.baseline or labels[0])), labels[0])
+            payload = failure_patterns(
+                store, args.experiment_id, variant, baseline=args.baseline, metric=args.metric,
+                threshold=args.threshold, group_by=args.group_by, cluster=not args.no_cluster, k=args.clusters,
+                embed=_spec(args.embed) if args.embed else None,
+                extra_providers=_load_extra_providers(args.extra_providers), top_examples=args.top)
+            print(format_patterns(payload))
+            if args.json:
+                _write(args.json, json.dumps(payload, indent=2, default=str))
         elif args.cmd == "baseline-export":
             snap = export_snapshot(store, args.experiment_id, args.variant, args.out)
             print(f"wrote {args.out}: variant {snap['variant']!r}, {snap['dataset']['n_examples']} examples, "
@@ -312,12 +419,13 @@ def main(argv=None) -> int:
                 check_compatible(side_from_snapshot(args.baseline_file), probe, args.allow_dataset_mismatch)
             exp_id = create_experiment(store, dataset, config, args.name, corpus)
             print(f"created {exp_id}  ({len(dataset.examples)} examples, dataset sha256 {dataset.content_hash[:12]})")
-            ran = run_experiment(store, exp_id, progress=_progress)
+            ran = run_experiment(store, exp_id, progress=_Progress())
             print(f"ran {ran['ran']} calls")
             res = evaluate_experiment(store, exp_id, lexical=not args.no_lexical, retrieval=not args.no_retrieval,
                                       faithfulness=args.faithfulness, correctness=not args.no_correctness,
                                       judge=_judge_spec(args), embed=_spec(args.embed) if args.embed else None,
-                                      progress=_progress)
+                                      progress=_Progress(), extra_providers=_load_extra_providers(args.extra_providers),
+                                      concurrency=args.concurrency, timeout=args.judge_timeout)
             _print_eval_stats(res)
             print()
             code = _emit_gate(gate_experiment(store, exp_id, rules, baseline_label=args.baseline,

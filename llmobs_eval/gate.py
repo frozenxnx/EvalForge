@@ -305,8 +305,10 @@ def _metric_check(rule: MetricRule, baseline: Side, candidate: Side, rules: Gate
     if not ids:
         return error("the baseline and the candidate share no scored examples")
     a, b = [b_scores[i] for i in ids], [c_scores.get(i, 0.0) for i in ids]
-    pb = paired_bootstrap(a, b, rules.n_boot, alpha, seed_for(baseline.label, candidate.label, rule.name),
-                          rules.min_pairs)
+    # Seed from the data, not from the labels: a snapshot's label carries its creation date, and the same
+    # numbers must always give the same interval (and so the same verdict), whatever the runs are called.
+    seed = seed_for(rule.name, *[f"{i}:{x:g}:{y:g}" for i, x, y in zip(ids, a, b)])
+    pb = paired_bootstrap(a, b, rules.n_boot, alpha, seed, rules.min_pairs)
     cm = _mean(b)
     check.update(baseline_mean=_mean(a), candidate_mean=cm, delta=pb["delta"], ci_low=pb["ci_low"],
                  ci_high=pb["ci_high"], n_pairs=pb["n_paired"], enough_pairs=pb["enough_pairs"],

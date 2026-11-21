@@ -370,7 +370,7 @@ class ViewerTests(unittest.TestCase):
         truth_labels(store, exp)
         h = node_render("renderJudgeCheck", judge_check_payload(store, exp), calibration_payload(store, exp, n_boot=100))
         for needle in ("Judge check", "judge-x", "Judge too lenient", "4 disagreements to review", "close enough",
-                       "Against your human labels", "40 labels (random sample)", "kappa 0.69", "bias +0.00", "cand", "base"):
+                       "Against your human labels", "40 labels (random sample)", "kappa <b>0.69</b>", "bias <b>+0.00</b>", "cand", "base"):
             self.assertIn(needle, h)
         for bad in ("undefined", "NaN"):
             self.assertNotIn(bad, h)

@@ -433,15 +433,16 @@ const document = {{ querySelector: stub, querySelectorAll: () => [] }};
 const fetch = async () => ({{ ok: true, json: async () => ({{ traces: [], experiments: [] }}) }});
 const mod = {{ exports: {{}} }};
 new Function("module", "document", "fetch", "setInterval", script)(mod, document, fetch, () => 0);
-process.stdout.write(mod.exports.renderCompare({json.dumps(payload)}));
+const p = {json.dumps(payload)};
+process.stdout.write(mod.exports.renderCompare(p) + mod.exports.renderRegressions(p));
 """
         with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
             fh.write(harness)
         out = subprocess.run(["node", fh.name], capture_output=True, text=True, timeout=30)
         self.assertEqual(out.returncode, 0, out.stderr)
         h = out.stdout
-        for needle in ("base", "cand", "judge:judge-x", "(baseline)", "&#9660;", "delta down", "<details>",
-                       "id=\"sel-base\"", "id=\"sel-metric\"", "8 examples worse than baseline"):
+        for needle in ("base", "cand", "judge:judge-x", '<span class="tag">baseline</span>', "&#9660;", "delta down", "<details>",
+                       'data-change="baseline"', 'class="card verdict', '<svg class="forest"', "8 examples worse than base on", "(showing 5)"):
             self.assertIn(needle, h)
         for bad in ("undefined", "NaN", ">null<"):
             self.assertNotIn(bad, h)

@@ -1,4 +1,4 @@
-# llmobs: tracing, experiment runner, evaluators, comparison, RAG evaluation, judge calibration, CI gating
+# llmobs: tracing, experiment runner, evaluators, comparison, RAG evaluation, judge calibration, CI gating, failure patterns
 
 ## Use the SDK
 ```python
@@ -311,3 +311,127 @@ the Ollama server is not running (start the Ollama app or run `ollama serve`; `o
 Nothing was lost: connection failures are never recorded as results. `run`/`ci` stop after 5 consecutive failures and
 tell you to `resume <id>`; `evaluate` stops the same way and the answers it did not reach are scored by simply
 running the same command again. A wrong port in the config produces the same message (it names the URL it tried).
+
+## Making slow evaluation bearable
+Long runs say how long they will take: `  37/118 calls  (6m10s elapsed, ~13m left)`. Every score is saved as it is
+made, so a run can be stopped (Ctrl+C) and continued by running the same command again.
+
+1. **Measure first**: `--probe` times 3 real judge calls with your settings, stores nothing, and projects the total:
+   ```bash
+   python -m llmobs_eval evaluate <id> --judge ollama:qwen3:4b --probe
+   ```
+   It prints latency, prompt tokens and *generated tokens* per call. A judge verdict needs about 40 generated tokens;
+   hundreds mean the model is reasoning ("thinking") behind the scenes, which is the usual reason a judge is slow,
+   and the probe says so.
+2. **Switch thinking off properly.** Ollama's OpenAI-compatible endpoint does not reliably honor it. The native
+   provider sends `think: false` and keeps the model loaded between calls (`keep_alive`). Use it for this evaluation
+   without touching the stored experiment:
+   ```bash
+   python -m llmobs_eval evaluate <id> --extra-providers examples/providers_ollama_native.json \
+          --judge ollama-native:qwen3:4b --probe
+   ```
+   (`examples/providers_ollama_native.json` defines a provider of `"type": "ollama"`; it can also be used in an
+   experiment config, including as an `embedding` retriever provider.) It follows Ollama's documented `/api/chat`
+   and `/api/embed` API and is tested against a fake server, not a live Ollama; if your Ollama is too old to know
+   `think`, the probe will show the token count did not drop.
+3. **Score in sessions**: `--max-items 40` judges 40 answers and stops; run again to continue. The summary line
+   reports `deferred=N` (how many are left).
+4. **`--concurrency N`** sets parallel judge calls (default: the experiment's setting, 1 for the example Ollama
+   configs). It only helps if the server can really serve requests in parallel (a GPU, or `OLLAMA_NUM_PARALLEL`).
+5. A smaller judge is faster; `--only-labeled` judges just the answers you labeled.
+
+Note on calibration: kappa describes the exact judge *configuration* you measured. The metric name is
+`judge:<model>`, so scores made with different settings (thinking on/off) share a name and cannot be re-scored.
+To validate a new configuration on your existing labels, give it a new model name, e.g.
+`ollama cp qwen3:4b qwen3-4b-nothink`, then `evaluate --judge ollama-native:qwen3-4b-nothink --only-labeled` and
+`calibrate <id> --all` compares the two on the same labels.
+
+## Timeouts: a call that is accepted but never answered
+`timed out after 300s waiting for http://localhost:11434/...` is different from "connection refused": the server
+took the request and did not answer. Typical causes: the model is reasoning at length, Ollama is still busy with
+requests from an earlier interrupted run, or the model does not fit in memory and is swapping.
+- A timed-out call is retried **once**, not with the full retry budget: a retry only joins the queue behind the
+  request that is still running, and 5 attempts at 300s each is 25 minutes per answer.
+- `run`/`evaluate` stop after **3** consecutive timeouts (5 consecutive refused connections) instead of grinding
+  through every remaining answer. Nothing is recorded for those calls; `resume` / a re-run redoes them.
+- `--judge-timeout SECONDS` overrides the (often 300s) timeout from the experiment config for the judge and embedding
+  provider in an evaluation, so a stuck server costs seconds rather than minutes.
+- `--probe` now uses a 60s timeout (`--probe-timeout`) and caps the output at 300 tokens unless you set
+  `max_tokens`/`num_predict`: a model that reasons at length hits the cap and is diagnosed in seconds, and the report
+  shows tokens/second. When a probe times out it lists the likely causes and what to check (`ollama ps`, restarting
+  Ollama to clear an earlier backlog, CPU use, memory).
+
+## Failure patterns: where do the failures concentrate?
+A flat list of failing examples hides structure: "every date question fails" is one finding, not nine.
+```bash
+python -m llmobs_eval failures <id> --variant pr                       # all failures of one variant
+python -m llmobs_eval failures <id> --variant pr --baseline main       # NEW failures: main passes, pr fails
+python -m llmobs_eval failures <id> --metric recall@3 --no-cluster     # any metric defines "failure" (score < --threshold 0.5)
+python -m llmobs_eval failures <id> --group-by kind --embed ollama:nomic-embed-text --json out.json
+```
+Examples are grouped two ways and every group is tested against chance:
+- **By category**: a metadata key of your dataset (`--group-by`, default `category`). Exact and interpretable.
+- **By similar questions**: clusters of alike questions (tf-idf cosine k-means: no model, instant; or `--embed` for
+  semantic clusters). These are *hints*: with a few dozen examples text similarity is rough, and paraphrases of the
+  same topic share no words by definition.
+- **The test**: for a group of n examples with f failures, in a population of N with F failures, the p-value is the
+  exact hypergeometric upper tail P(X >= f): the chance a random group that size fails at least that much. It is
+  Bonferroni-corrected over the groups of the same kind that have at least 3 members (`*` = significant at 5%).
+- **Diagnostic counters**: how many failing answers are refusals ("I don't know", "not mentioned"), and for RAG
+  variants how many failures had the retriever find *none* of the labeled relevant documents.
+- A generation that failed outright counts as a failure. The regressions view (`--baseline`) only considers examples
+  the baseline got right, i.e. the failures a change introduced; that is the one to read after a CI gate fails.
+
+On the shipped RAG data with BM25 retrieval (no model involved), `failures <id> --metric recall@3` finds it
+unprompted: `vocab_mismatch` 6 of 12 fail (x3.6 the overall rate, p < 0.001 after correction) while the other four
+categories have no failures, and all 6 are retrieval misses. The tf-idf clusters do *not* find it, for the reason
+above: that is what categories and `--embed` are for.
+
+The Experiments tab shows the same analysis ("Failure patterns") with a variant selector and an all-failures /
+new-failures switch (`GET /v1/experiments/{id}/failure-patterns`).
+
+## Retiring a metric (and choosing a judge for a small machine)
+Scores are immutable, but a half-finished or abandoned judge can be taken out of the views:
+```bash
+python -m llmobs_eval metrics <id> list                     # every metric, shown or hidden, and how much it covers
+python -m llmobs_eval metrics <id> hide judge:qwen3:4b      # leaves the scores in the database, out of tables/comparisons
+python -m llmobs_eval metrics <id> unhide judge:qwen3:4b
+```
+Hidden metrics are skipped by `compare`, the viewer, `judge-check`, `calibrate --all` and `failures`, but a metric
+named explicitly (`--metric`, a gate rule) still works. On a laptop with a small GPU and 8 GB of RAM, a "thinking"
+4B judge spills out of GPU memory and generates thousands of tokens per answer; a 3B non-reasoning judge that fits in
+VRAM (qwen2.5:3b was calibrated at kappa 0.74 on 25 labels) is the practical choice. If two models alternate (a
+generator and a judge), `OLLAMA_MAX_LOADED_MODELS=1` avoids both being resident in RAM at once.
+
+## The web UI
+```bash
+python -m llmobs_server.dev_server --db llmobs.db         # standard library only, http://127.0.0.1:8000
+# or, with FastAPI installed:  uvicorn llmobs_server.app:app
+```
+Both servers expose the same routes (`tests/test_stdlib_server.py` exercises the standard-library one over real HTTP).
+The UI is a single self-contained file (`llmobs_server/static/viewer.html`: no build step, no CDN, no framework) with
+light and dark themes and a URL for every view, so a link to `#/experiments/<id>/failures` can be shared.
+
+- **Overview** answers "did my change help?" first: one verdict card per variant (better / worse / same, counted over
+  metrics with a significant paired difference), then a forest plot of every paired difference with its 95% interval
+  (a filled dot means the interval excludes 0; a dashed line means too few paired examples to judge), then the full
+  tables with intervals, latency, cost and the notes about the comparison.
+- **Examples**: filter by id or question text, show only failing examples or only those where the variants differ,
+  and switch the score being used. Each example shows every variant side by side with the retrieved documents
+  (relevant ones marked), the scores and the judge's reason, and links to the trace.
+- **Failures**: the failure-pattern analysis above, plus the examples that got worse than the baseline.
+- **Judge**: judge-vs-`contains` disagreements and, when you have labeled answers, agreement and kappa against them.
+- **Traces**: a waterfall per trace with kinds colored consistently; judge and faithfulness traces are hidden by default.
+
+## Trying it without a model
+```bash
+python -m llmobs_eval.demo --db demo.db            # a few seconds, no Ollama, no API key
+python -m llmobs_server.dev_server --db demo.db
+```
+This builds two experiments (a three-way prompt A/B test and a closed-book / BM25 / oracle RAG experiment on the
+shipped Lumen corpus), traces, a judge, and 28 human labels per experiment. **All model output and all judge verdicts
+in it are synthetic**: the "models" answer correctly with a fixed per-category probability and the "judge" is a rule
+with a few planted mistakes, so the numbers say nothing about any real model. What is real is everything around them:
+BM25 retrieval, the runner, tracing, scoring, paired statistics, calibration and failure patterns. It is meant for
+exploring the UI, for demonstrations and for tests; the demo RAG experiment, for example, contains the planted
+`vocab_mismatch` retrieval weakness that `failures --metric recall@3` finds.
