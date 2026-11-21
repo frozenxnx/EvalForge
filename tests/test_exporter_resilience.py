@@ -128,7 +128,7 @@ class ExporterResilienceTests(unittest.TestCase):
 
     def test_dead_server_costs_milliseconds_not_minutes(self):
         exp = HTTPExporter("http://127.0.0.1:1/v1/spans", batch_size=1, flush_interval=0.01, max_retries=3,
-                           backoff_base=0.05, timeout=1)
+                           backoff_base=0.05, timeout=0.25)   # Windows takes ~2s to refuse a port: cap each try
         t = time.perf_counter()
         with self.assertLogs("llmobs", "WARNING"):
             for i in range(30):

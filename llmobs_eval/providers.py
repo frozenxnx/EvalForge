@@ -70,11 +70,16 @@ def _post_json(url: str, headers: Dict[str, str], body: Dict[str, Any], timeout:
         ) from None
     except (urllib.error.URLError, TimeoutError, ConnectionError, socket.timeout) as exc:
         reason = getattr(exc, "reason", exc)
-        if isinstance(exc, (TimeoutError, socket.timeout)) or isinstance(reason, (TimeoutError, socket.timeout)):
+        # urllib wraps errors raised while connecting/sending in URLError, but lets a timeout while waiting
+        # for the response through bare. So a URLError whose reason is a timeout means the connection was
+        # never established (e.g. Windows takes ~2s to report a refused port), not a slow server.
+        if isinstance(exc, (TimeoutError, socket.timeout)):
             raise ProviderError(
                 f"timed out after {timeout:g}s waiting for {url}: the server accepted the request but did not answer "
                 "(still loading the model, busy with earlier requests, or reasoning for a long time)",
                 retryable=True, kind="timeout") from None
+        if isinstance(reason, (TimeoutError, socket.timeout)):
+            reason = f"no connection within {timeout:g}s"
         raise ProviderError(f"cannot reach {url}: {reason}", retryable=True, kind="connection") from None
     try:
         return json.loads(raw)

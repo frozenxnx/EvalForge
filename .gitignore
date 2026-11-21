@@ -1,0 +1,27 @@
+# Python bytecode and build output
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local databases written by the server / eval runner
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Test / tool caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
