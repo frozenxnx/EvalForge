@@ -110,15 +110,44 @@ class IngestionTests(ServerCase):
 
 class AuthTests(ServerCase):
     api_key = "secret"
+    OK = {"Authorization": "Bearer secret"}
 
-    def test_only_ingestion_requires_the_key(self):
+    def test_ingestion_requires_the_key(self):
         span = {"trace_id": "t", "span_id": "s", "name": "x", "start_ns": 1}
         self.assertEqual(self.get("/v1/spans", method="POST", body={"spans": [span]})[0], 401)
         self.assertEqual(self.get("/v1/spans", method="POST", body={"spans": [span]},
                                   headers={"Authorization": "Bearer wrong"})[0], 401)
-        self.assertEqual(self.get("/v1/spans", method="POST", body={"spans": [span]},
-                                  headers={"Authorization": "Bearer secret"})[0], 202)
-        self.assertEqual(self.get("/v1/traces")[0], 200)                                # reading stays open
+        self.assertEqual(self.get("/v1/spans", method="POST", body={"spans": [span]}, headers=self.OK)[0], 202)
+
+    def test_reading_requires_the_key_too(self):
+        for path in ("/v1/traces", "/v1/traces/t", "/v1/experiments", "/v1/experiments/x/compare"):
+            self.assertEqual(self.get(path)[0], 401, path)
+            self.assertEqual(self.get(path, headers={"Authorization": "Bearer secre"})[0], 401, path)
+        self.assertEqual(self.get("/v1/traces", headers=self.OK)[0], 200)
+        self.assertEqual(self.get("/healthz")[0], 200)                                  # probes stay open
+        self.assertEqual(self.get("/")[0], 200)                                         # static page, no data
+
+
+class BodyLimitTests(ServerCase):
+    def test_an_oversized_body_is_refused_before_it_is_read(self):
+        import http.client
+        from llmobs_server.auth import MAX_BODY
+        conn = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1], timeout=10)
+        self.addCleanup(conn.close)
+        conn.putrequest("POST", "/v1/spans")                      # claims 1 GB but sends nothing
+        conn.putheader("Content-Length", str(MAX_BODY * 100))
+        conn.endheaders()
+        resp = conn.getresponse()
+        self.assertEqual((resp.status, json.loads(resp.read())), (413, {"detail": "request body too large"}))
+
+    def test_a_malformed_length_is_a_bad_request(self):
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1], timeout=10)
+        self.addCleanup(conn.close)
+        conn.putrequest("POST", "/v1/spans")
+        conn.putheader("Content-Length", "-5")
+        conn.endheaders()
+        self.assertEqual(conn.getresponse().status, 400)
 
 
 class ExperimentRoutesTests(ServerCase):

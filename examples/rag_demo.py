@@ -55,7 +55,7 @@ def answer(query: str):
 
 if __name__ == "__main__":
     exporter_url = os.environ.get("LLMOBS_ENDPOINT", "http://127.0.0.1:8000/v1/spans")
-    llmobs.configure(endpoint=exporter_url, service="rag-demo")
+    llmobs.configure(endpoint=exporter_url, service="rag-demo", api_key=os.environ.get("LLMOBS_API_KEY"))
     for q in ["How long do refunds take?", "Do premium plans get support?", "Password rules?"] * 3:
         print(answer(q))
     llmobs.get_tracer().exporter.flush()

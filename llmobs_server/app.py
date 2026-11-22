@@ -5,13 +5,14 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from llmobs_eval.store import ExperimentStore
 
 from . import experiments_api
+from .auth import MAX_BODY, OPEN_PATHS, key_ok
 from .store import SpanStore
 
 STATIC = Path(__file__).parent / "static"
@@ -45,11 +46,22 @@ def create_app(store: Optional[SpanStore] = None, api_key: Optional[str] = None,
     api_key = api_key or os.environ.get("LLMOBS_API_KEY")
     app = FastAPI(title="llmobs", version="0.1.0")
 
-    def auth(authorization: Optional[str] = Header(default=None)) -> None:
-        if api_key and authorization != f"Bearer {api_key}":
-            raise HTTPException(status_code=401, detail="invalid API key")
+    @app.middleware("http")
+    async def guard(request: Request, call_next):
+        # With an API key set, every route except OPEN_PATHS needs it: traces hold prompts and model outputs.
+        if request.url.path not in OPEN_PATHS and not key_ok(request.headers.get("authorization"), api_key):
+            return JSONResponse({"detail": "invalid API key"}, status_code=401)
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            # Checked before the body is read. The server reads at most Content-Length bytes, so a client
+            # cannot slip a bigger body past this by understating it.
+            length = request.headers.get("content-length")
+            if length is None or not length.strip().isdigit():
+                return JSONResponse({"detail": "Content-Length required"}, status_code=411)
+            if int(length) > MAX_BODY:
+                return JSONResponse({"detail": "request body too large"}, status_code=413)
+        return await call_next(request)
 
-    @app.post("/v1/spans", status_code=202, dependencies=[Depends(auth)])
+    @app.post("/v1/spans", status_code=202)
     def ingest(batch: IngestBatch):
         n = store.ingest([s.model_dump() for s in batch.spans])
         return {"accepted": n}

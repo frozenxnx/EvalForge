@@ -8,6 +8,7 @@ from typing import Optional
 
 from llmobs_eval.store import ExperimentStore
 
+from .auth import MAX_BODY
 from .stdlib_app import Api
 from .store import SpanStore
 
@@ -17,13 +18,23 @@ def make_handler(api: Api):
         protocol_version = "HTTP/1.1"
 
         def _respond(self, method: str) -> None:
-            length = int(self.headers.get("Content-Length") or 0)
+            raw_len = (self.headers.get("Content-Length") or "0").strip()
+            if not raw_len.isdigit():
+                return self._send(400, "application/json", b'{"detail": "invalid Content-Length"}', close=True)
+            length = int(raw_len)
+            if length > MAX_BODY:          # refuse before reading, so a huge claim cannot exhaust memory
+                return self._send(413, "application/json", b'{"detail": "request body too large"}', close=True)
             body = self.rfile.read(length) if length else b""
-            status, ctype, payload = api.handle(method, self.path, body, dict(self.headers.items()))
+            self._send(*api.handle(method, self.path, body, dict(self.headers.items())))
+
+        def _send(self, status: int, ctype: str, payload: bytes, close: bool = False) -> None:
             self.send_response(status)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(payload)))
             self.send_header("Cache-Control", "no-store")
+            if close:                      # the unread body is still on the socket: do not reuse it
+                self.send_header("Connection", "close")
+                self.close_connection = True
             self.end_headers()
             self.wfile.write(payload)
 

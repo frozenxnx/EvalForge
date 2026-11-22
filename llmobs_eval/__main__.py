@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from typing import Optional
@@ -60,7 +61,8 @@ def _load_extra_providers(path: Optional[str]) -> Optional[dict]:
 
 def _trace(args) -> None:
     if args.trace_endpoint:
-        llmobs.configure(endpoint=args.trace_endpoint, service="llmobs-eval")
+        llmobs.configure(endpoint=args.trace_endpoint, service="llmobs-eval",
+                         api_key=os.environ.get("LLMOBS_API_KEY"))
 
 
 def _spec(text: str) -> dict:

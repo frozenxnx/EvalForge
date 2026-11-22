@@ -20,10 +20,10 @@ from llmobs_eval.patterns import failure_patterns
 from llmobs_eval.store import ExperimentStore
 from llmobs_eval.summary import experiment_overview
 
+from .auth import MAX_BODY, OPEN_PATHS, key_ok
 from .store import SpanStore
 
 STATIC = Path(__file__).parent / "static"
-MAX_BODY = 10 * 1024 * 1024
 _REQUIRED = ("trace_id", "span_id", "name", "start_ns")
 
 
@@ -82,7 +82,7 @@ class Api:
             for m, pattern, fn in self.routes:
                 match = pattern.match(path)
                 if match and m == method:
-                    if method == "POST":
+                    if path not in OPEN_PATHS:
                         self._auth(headers)
                     return 200 if method == "GET" else 202, "application/json", self._json(
                         fn(q, body, *[unquote(g) for g in match.groups()]))
@@ -101,7 +101,7 @@ class Api:
         return json.dumps(obj, default=str).encode("utf-8")
 
     def _auth(self, headers: Dict[str, str]) -> None:
-        if self.api_key and headers.get("authorization") != f"Bearer {self.api_key}":
+        if not key_ok(headers.get("authorization"), self.api_key):
             raise HttpError(401, "invalid API key")
 
     # -- handlers (query, body, *path groups) ---------------------------------

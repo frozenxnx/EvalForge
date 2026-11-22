@@ -167,8 +167,25 @@ function ago(ts) {
   if (s < 86400) return Math.floor(s / 3600) + " h ago"; return Math.floor(s / 86400) + " d ago";
 }
 const pill = (status) => `<span class="pill ${esc(status)}"><i></i>${esc(status)}</span>`;
-async function api(path) {
-  const r = await fetch(path);
+/* When the server runs with LLMOBS_API_KEY, every API call needs the key. Ask once per tab, keep it for the
+   session only (sessionStorage), and send it as a Bearer header. */
+const KEY_SLOT = "llmobs-api-key";
+let apiKey = null;
+try { apiKey = sessionStorage.getItem(KEY_SLOT); } catch (e) { /* storage unavailable */ }
+let keyPrompt = null;                                   // one prompt even when several calls get 401 at once
+function askForKey(wrong) {
+  if (!keyPrompt) keyPrompt = Promise.resolve().then(() => {
+    const k = typeof prompt === "function"
+      ? prompt(wrong ? "That API key was not accepted. API key:" : "This server requires an API key (LLMOBS_API_KEY):")
+      : null;
+    if (k) { apiKey = k.trim(); try { sessionStorage.setItem(KEY_SLOT, apiKey); } catch (e) { /* ignore */ } }
+    return !!k;
+  }).finally(() => { keyPrompt = null; });
+  return keyPrompt;
+}
+async function api(path, retried) {
+  const r = await fetch(path, apiKey ? { headers: { Authorization: "Bearer " + apiKey } } : undefined);
+  if (r.status === 401 && !retried && await askForKey(!!apiKey)) return api(path, true);
   let body = {}; try { body = await r.json(); } catch (e) { /* not JSON */ }
   if (!r.ok) { const err = new Error(body.detail || r.statusText || "request failed"); err.status = r.status; throw err; }
   return body;

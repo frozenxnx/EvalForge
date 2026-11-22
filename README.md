@@ -27,7 +27,16 @@ uvicorn llmobs_server.app:app          # API + viewer at http://127.0.0.1:8000
 python examples/rag_demo.py            # emits sample traces
 python -m unittest -v tests.test_llmobs
 ```
-Env: `LLMOBS_DB` (SQLite path, default `llmobs.db`), `LLMOBS_API_KEY` (require `Authorization: Bearer ...`).
+Env: `LLMOBS_DB` (SQLite path, default `llmobs.db`), `LLMOBS_API_KEY`.
+
+**Access.** Without `LLMOBS_API_KEY` the server is open to anyone who can reach it, so keep it on `127.0.0.1`
+(the default). With it set, every route except `/healthz` and the viewer page `/` needs
+`Authorization: Bearer <key>`, reads as well as writes, because traces hold your prompts and model outputs.
+The viewer asks for the key on the first 401 and keeps it for that browser tab only. Your app sends it with
+`llmobs.configure(endpoint=..., api_key=...)`; the eval CLI's `--trace-endpoint` and `examples/rag_demo.py` read
+it from `LLMOBS_API_KEY`. Request bodies over 10 MB are refused (413) before being read.
+Before exposing the server beyond your machine, also put it behind HTTPS (a reverse proxy such as Caddy or
+nginx): the key travels in a header. Traces are never deleted, and SQLite means one server process.
 
 ## Layout
 - `llmobs/` SDK: `tracer.py` (Span, `@trace`, `span()`), `exporters.py` (HTTP batching, in-memory)
