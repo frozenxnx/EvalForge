@@ -508,7 +508,8 @@ function renderExpList(id) {
   const q = S.q.trim().toLowerCase(), items = S.exps.filter(e => !q || e.name.toLowerCase().includes(q) || (e.dataset_name || "").toLowerCase().includes(q));
   $("#list").innerHTML = items.length ? items.map(e =>
     `<a class="item ${e.id === id ? "on" : ""}" href="#/experiments/${encodeURIComponent(e.id)}" data-exp="${esc(e.id)}"><div class="t"><span>${esc(e.name)}</span>${pill(e.status)}</div><div class="m">${esc(e.dataset_name)} &middot; ${ago(e.created_at)}</div></a>`).join("")
-    : emptyState(S.exps.length ? "No match" : "No experiments yet", S.exps.length ? "Try a different search." : "Create one with <code>python -m llmobs_eval run ...</code>, or load sample data with <code>python -m llmobs_eval.demo</code>.");
+    : S.exps.length ? emptyState("No match", "Try a different search.")
+    : "";                                   // no experiments at all: the main panel explains how to create one
 }
 function renderTraceList(id) {
   const q = S.tq.trim().toLowerCase();
