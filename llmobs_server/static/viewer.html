@@ -137,6 +137,15 @@
   .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:10px; } .legend span i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; }
   @media (max-width:860px) { .layout { flex-direction:column; } aside.side { width:auto; max-height:34vh; border-right:0; border-bottom:1px solid var(--line); }
     main.content { padding:16px; } header.top { gap:12px; padding:0 12px; } .conn span:last-child { display:none; } }
+  .key-gate { position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:16px;
+              background:rgba(0,0,0,.45); }
+  .key-card { width:100%; max-width:380px; background:var(--surface); border:1px solid var(--line); border-radius:10px;
+              padding:20px; display:flex; flex-direction:column; gap:12px; box-shadow:0 12px 40px rgba(0,0,0,.25); }
+  .key-card p { margin:0; font-size:13px; }
+  .key-card input { padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); font:inherit; }
+  .key-actions { display:flex; justify-content:flex-end; gap:8px; }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.primary:hover { filter:brightness(1.08); background:var(--accent); }
 </style>
 </head>
 <body>
@@ -172,20 +181,38 @@ const pill = (status) => `<span class="pill ${esc(status)}"><i></i>${esc(status)
 const KEY_SLOT = "llmobs-api-key";
 let apiKey = null;
 try { apiKey = sessionStorage.getItem(KEY_SLOT); } catch (e) { /* storage unavailable */ }
-let keyPrompt = null;                                   // one prompt even when several calls get 401 at once
+let keyPrompt = null;                                   // one form even when several calls get 401 at once
+/* An in-page form rather than window.prompt(), which embedded browsers and sandboxed frames often block. */
 function askForKey(wrong) {
-  if (!keyPrompt) keyPrompt = Promise.resolve().then(() => {
-    const k = typeof prompt === "function"
-      ? prompt(wrong ? "That API key was not accepted. API key:" : "This server requires an API key (LLMOBS_API_KEY):")
-      : null;
-    if (k) { apiKey = k.trim(); try { sessionStorage.setItem(KEY_SLOT, apiKey); } catch (e) { /* ignore */ } }
-    return !!k;
-  }).finally(() => { keyPrompt = null; });
+  if (keyPrompt) return keyPrompt;
+  if (typeof document === "undefined") return Promise.resolve(false);
+  keyPrompt = new Promise(resolve => {
+    const box = document.createElement("div");
+    box.className = "key-gate";
+    box.innerHTML = `<form class="key-card" role="dialog" aria-modal="true" aria-labelledby="key-title">
+        <b id="key-title">API key required</b>
+        <p class="muted">${wrong ? '<span class="bad">That key was not accepted.</span> ' : ""}This server runs with
+          <code>LLMOBS_API_KEY</code>. The key is kept for this tab only.</p>
+        <input type="password" name="key" autocomplete="off" spellcheck="false" placeholder="API key" aria-label="API key" required>
+        <div class="key-actions"><button type="button" class="btn" data-k="cancel">Cancel</button>
+          <button type="submit" class="btn primary">Unlock</button></div></form>`;
+    const done = (k) => {
+      box.remove(); keyPrompt = null;
+      if (k) { apiKey = k; try { sessionStorage.setItem(KEY_SLOT, apiKey); } catch (e) { /* ignore */ } }
+      resolve(!!k);
+    };
+    box.querySelector("form").onsubmit = (ev) => { ev.preventDefault(); done(box.querySelector("input").value.trim()); };
+    box.querySelector('[data-k="cancel"]').onclick = () => done(null);
+    box.addEventListener("keydown", (ev) => { if (ev.key === "Escape") done(null); });
+    document.body.appendChild(box);
+    box.querySelector("input").focus();
+  });
   return keyPrompt;
 }
-async function api(path, retried) {
-  const r = await fetch(path, apiKey ? { headers: { Authorization: "Bearer " + apiKey } } : undefined);
-  if (r.status === 401 && !retried && await askForKey(!!apiKey)) return api(path, true);
+const send = (path) => fetch(path, apiKey ? { headers: { Authorization: "Bearer " + apiKey } } : undefined);
+async function api(path) {
+  let r = await send(path);
+  while (r.status === 401 && await askForKey(!!apiKey)) r = await send(path);   // until a key works or Cancel
   let body = {}; try { body = await r.json(); } catch (e) { /* not JSON */ }
   if (!r.ok) { const err = new Error(body.detail || r.statusText || "request failed"); err.status = r.status; throw err; }
   return body;
