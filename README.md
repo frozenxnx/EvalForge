@@ -86,6 +86,21 @@ in `api_key_env`, never from the file; optional `rps` rate limit), `variants` (l
   HTTP error, start a new experiment; old results stay as they were.
 - Each result stores the `trace_id` of its call tree (root span -> one `llm_call` span per attempt).
 
+**Sending experiments to a server.** The CLI always works in its local `--db` file, so a run never depends on
+the network. Give it a server and every command that changes an experiment (`run`, `resume`, `evaluate`,
+`label`, `metrics hide|unhide`, `ci`) uploads it when it finishes; traces go to the same server unless
+`--trace-endpoint` says otherwise:
+```bash
+$env:LLMOBS_SERVER = "http://127.0.0.1:8000"     # or --server URL on each command (bash: export LLMOBS_SERVER=...)
+$env:LLMOBS_API_KEY = "<the server's key>"
+python -m llmobs_eval run --dataset ... --config ...   # results + traces appear in the server's viewer
+python -m llmobs_eval push <id>                         # upload an existing experiment; safe to repeat
+```
+Uploads go to `POST /v1/experiments/import` (gzip). The server adds what it lacks and keeps what it has, so
+re-sending is harmless; labels, hidden metrics and status follow the upload. If the server already holds a
+*different* version of an immutable row (two histories of one experiment), it refuses with 409 and changes
+nothing. A failed upload leaves the local copy intact and prints the `push` command to retry.
+
 ## Evaluating and comparing (step 3)
 ```bash
 python -m llmobs_eval evaluate <id>                                   # exact_match, contains, token_f1

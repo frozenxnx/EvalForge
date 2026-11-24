@@ -17,10 +17,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 from llmobs_eval.compare import compare_payload, examples_payload
 from llmobs_eval.judgecheck import calibration_payload, judge_check_payload
 from llmobs_eval.patterns import failure_patterns
-from llmobs_eval.store import ExperimentStore
+from llmobs_eval.store import ExperimentStore, ImportConflict
 from llmobs_eval.summary import experiment_overview
 
-from .auth import MAX_BODY, OPEN_PATHS, key_ok
+from .auth import MAX_BODY, OPEN_PATHS, BodyError, decode_body, key_ok
 from .store import SpanStore
 
 STATIC = Path(__file__).parent / "static"
@@ -57,6 +57,7 @@ class Api:
         self.routes: List[Tuple[str, "re.Pattern[str]", Callable]] = [
             ("GET", re.compile(r"^/healthz$"), self._health),
             ("POST", re.compile(r"^/v1/spans$"), self._ingest),
+            ("POST", re.compile(r"^/v1/experiments/import$"), self._import),
             ("GET", re.compile(r"^/v1/traces$"), self._traces),
             ("GET", re.compile(r"^/v1/traces/([^/]+)$"), self._trace),
             ("GET", re.compile(r"^/v1/experiments$"), self._experiments),
@@ -84,13 +85,17 @@ class Api:
                 if match and m == method:
                     if path not in OPEN_PATHS:
                         self._auth(headers)
+                    if method == "POST":
+                        body = decode_body(body, headers.get("content-encoding"))
                     return 200 if method == "GET" else 202, "application/json", self._json(
                         fn(q, body, *[unquote(g) for g in match.groups()]))
             if any(p.match(path) for _, p, _ in self.routes):
                 raise HttpError(405, "method not allowed")
             raise HttpError(404, "not found")
-        except HttpError as exc:
+        except (HttpError, BodyError) as exc:
             return exc.status, "application/json", self._json({"detail": exc.detail})
+        except ImportConflict as exc:
+            return 409, "application/json", self._json({"detail": str(exc)})
         except KeyError as exc:
             return 404, "application/json", self._json({"detail": str(exc.args[0]) if exc.args else "not found"})
         except ValueError as exc:                        # ConfigError and bad arguments are ValueErrors
@@ -107,6 +112,13 @@ class Api:
     # -- handlers (query, body, *path groups) ---------------------------------
     def _health(self, q, body):
         return {"ok": True}
+
+    def _import(self, q, body):
+        try:
+            payload = json.loads(body or b"null")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            raise HttpError(400, "body must be JSON") from None
+        return self.experiments.import_experiment(payload)
 
     def _ingest(self, q, body):
         if len(body) > MAX_BODY:

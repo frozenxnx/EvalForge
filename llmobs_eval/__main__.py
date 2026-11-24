@@ -19,6 +19,8 @@ from . import (ConfigError, DatasetError, ExperimentStore, ProviderError, calibr
 from .gate import Side, check_compatible
 from .judge import judge_metric_name
 from .patterns import failure_patterns, format_patterns
+from .remote import PushError, push_experiment, server_url
+from .remote import describe as describe_push
 
 
 def _dur(seconds: float) -> str:
@@ -60,9 +62,22 @@ def _load_extra_providers(path: Optional[str]) -> Optional[dict]:
 
 
 def _trace(args) -> None:
-    if args.trace_endpoint:
-        llmobs.configure(endpoint=args.trace_endpoint, service="llmobs-eval",
-                         api_key=os.environ.get("LLMOBS_API_KEY"))
+    # An explicit --trace-endpoint wins; otherwise --server / $LLMOBS_SERVER also receives the traces.
+    endpoint = args.trace_endpoint or (args.server_url + "/v1/spans" if args.server_url else None)
+    if endpoint:
+        llmobs.configure(endpoint=endpoint, service="llmobs-eval", api_key=os.environ.get("LLMOBS_API_KEY"))
+
+
+def _push(store, exp_id: str, server: str) -> bool:
+    """Upload the experiment; on failure say how to retry. The local database already has everything."""
+    try:
+        print(describe_push(push_experiment(store, exp_id, server)))
+        return True
+    except PushError as exc:
+        print(f"error: could not send {exp_id} to the server: {exc}\n"
+              f"  it is saved locally; retry with: python -m llmobs_eval push {exp_id} --server {server}",
+              file=sys.stderr)
+        return False
 
 
 def _spec(text: str) -> dict:
@@ -200,7 +215,11 @@ def _finish(store, exp_id, result) -> None:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="llmobs_eval")
-    p.add_argument("--db", default="llmobs.db", help="SQLite file shared with the trace server")
+    p.add_argument("--db", default="llmobs.db", help="local SQLite file the CLI works in")
+    p.add_argument("--server", metavar="URL",
+                   help="llmobs server to send results to, e.g. http://127.0.0.1:8000 (default: $LLMOBS_SERVER). "
+                        "Commands that change an experiment upload it when they finish, and traces go there too. "
+                        "The key comes from $LLMOBS_API_KEY.")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="create and run a new experiment")
     r.add_argument("--dataset", required=True)
@@ -214,6 +233,8 @@ def main(argv=None) -> int:
     rp = sub.add_parser("report")
     rp.add_argument("experiment_id")
     sub.add_parser("list")
+    ps = sub.add_parser("push", help="send an experiment (results, scores, labels) to the server; safe to repeat")
+    ps.add_argument("experiment_id")
     ev = sub.add_parser("evaluate", help="score a finished experiment (re-runnable; only missing scores are computed)")
     ev.add_argument("experiment_id")
     _add_eval_args(ev)
@@ -300,8 +321,14 @@ def main(argv=None) -> int:
     _add_eval_args(ci)
     args = p.parse_args(argv)
 
+    try:
+        args.server_url = server_url(args.server)
+    except PushError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     store = ExperimentStore(args.db)
     code = 0
+    touched: Optional[str] = None          # experiment this command changed: uploaded at the end with --server
     try:
         if args.cmd == "run":
             _trace(args)
@@ -312,9 +339,11 @@ def main(argv=None) -> int:
             exp_id = create_experiment(store, dataset, config, args.name, corpus)
             print(f"created {exp_id}  ({len(dataset.examples)} examples, dataset sha256 {dataset.content_hash[:12]})")
             _finish(store, exp_id, run_experiment(store, exp_id, progress=_Progress()))
+            touched = exp_id
         elif args.cmd == "resume":
             _trace(args)
             _finish(store, args.experiment_id, run_experiment(store, args.experiment_id, progress=_Progress()))
+            touched = args.experiment_id
         elif args.cmd == "report":
             print(format_table(summarize(store, args.experiment_id)))
         elif args.cmd == "evaluate":
@@ -338,6 +367,7 @@ def main(argv=None) -> int:
             print()
             print(format_compare(compare_payload(store, args.experiment_id, args.baseline)))
             _flush_tracing()
+            touched = args.experiment_id
         elif args.cmd == "compare":
             print(format_compare(compare_payload(store, args.experiment_id, args.baseline, args.metric)))
         elif args.cmd == "metrics":
@@ -355,6 +385,7 @@ def main(argv=None) -> int:
                     raise ConfigError(f"unknown metric(s) {unknown}; this experiment has {sorted(coverage)}")
                 for n in args.names:
                     (store.hide_metric if args.action == "hide" else store.unhide_metric)(args.experiment_id, n)
+                touched = args.experiment_id
             hidden = store.hidden_metrics(args.experiment_id)
             answers = sum(1 for r in store.get_results(args.experiment_id) if r["status"] == "ok")
             width = max([len(m) for m in coverage] + [6])
@@ -375,6 +406,7 @@ def main(argv=None) -> int:
                 print(f"{len(items)} answers to label. You will not see the judge's verdict, so your labels stay "
                       "independent of it. Type q to stop; every label is saved immediately.")
                 saved = label_session(store, args.experiment_id, items, labeler=args.labeler)
+                touched = args.experiment_id if saved else None
                 print(f"\nsaved {saved} labels. Next: python -m llmobs_eval calibrate {args.experiment_id}")
         elif args.cmd == "calibrate":
             if args.all and args.record:
@@ -434,9 +466,18 @@ def main(argv=None) -> int:
                                               candidates=args.candidate, baseline_file=args.baseline_file,
                                               allow_dataset_mismatch=args.allow_dataset_mismatch, top_k=args.top), args)
             _flush_tracing()
+            touched = exp_id
         elif args.cmd == "list":
             for e in store.list_experiments():
                 print(f"{e['id']}  {e['status']:<9} {e['name']}  ({e['dataset_name']})")
+        elif args.cmd == "push":
+            if not args.server_url:
+                raise ConfigError("push needs --server URL (or $LLMOBS_SERVER)")
+            store.get_experiment(args.experiment_id)                               # KeyError for an unknown experiment
+            if not _push(store, args.experiment_id, args.server_url):
+                return 2
+        if touched and args.server_url and not _push(store, touched, args.server_url):
+            code = code or 2                     # a gate verdict (1) stays visible; otherwise report the failure
     except (ConfigError, DatasetError, ProviderError, KeyError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

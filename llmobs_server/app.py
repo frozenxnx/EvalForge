@@ -1,18 +1,20 @@
 """FastAPI ingestion + query API. Run: uvicorn llmobs_server.app:app --reload"""
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from llmobs_eval.store import ExperimentStore
+from llmobs_eval.store import ExperimentStore, ImportConflict
 
 from . import experiments_api
-from .auth import MAX_BODY, OPEN_PATHS, key_ok
+from .auth import MAX_BODY, OPEN_PATHS, BodyError, decode_body, key_ok
 from .store import SpanStore
 
 STATIC = Path(__file__).parent / "static"
@@ -77,6 +79,23 @@ def create_app(store: Optional[SpanStore] = None, api_key: Optional[str] = None,
         if not spans:
             raise HTTPException(status_code=404, detail="trace not found")
         return {"trace_id": trace_id, "spans": spans}
+
+    @app.post("/v1/experiments/import", status_code=202)
+    async def import_experiment(request: Request):
+        """Body: ExperimentStore.export_experiment output, optionally gzip-encoded (what the CLI's push sends)."""
+        try:
+            raw = decode_body(await request.body(), request.headers.get("content-encoding"))
+            payload = json.loads(raw or b"null")
+        except BodyError as exc:
+            raise HTTPException(status_code=exc.status, detail=exc.detail)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            raise HTTPException(status_code=400, detail="body must be JSON")
+        try:
+            return await run_in_threadpool(experiments.import_experiment, payload)
+        except ImportConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
     experiments_api.register(app, experiments)
 

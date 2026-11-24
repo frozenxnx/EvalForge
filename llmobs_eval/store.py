@@ -146,6 +146,25 @@ def canonical_hash(obj: Any) -> str:
     return hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
+EXPORT_FORMAT = "llmobs-experiment/1"
+# Append-only tables and their keys. On import a row the target lacks is added; a row it already has must be
+# identical (same key, different content = two histories of one experiment, which is refused, never merged).
+_IMMUTABLE_TABLES = {
+    "experiment_examples": ("experiment_id", "example_id"),
+    "experiment_corpus": ("experiment_id",),
+    "experiment_docs": ("experiment_id", "doc_id"),
+    "results": ("experiment_id", "variant", "example_id"),
+    "retrievals": ("experiment_id", "variant", "example_id", "rank"),
+    "scores": ("experiment_id", "variant", "example_id", "metric"),
+}
+_FROZEN_EXPERIMENT_COLUMNS = ("name", "created_at", "dataset_name", "dataset_hash", "config", "config_hash")
+_STATUSES = ("created", "running", "partial", "complete")
+
+
+class ImportConflict(ValueError):
+    """The target already holds a different version of this experiment's immutable data."""
+
+
 class ExperimentStore:
     def __init__(self, path: str = ":memory:") -> None:
         self._conn = sqlite3.connect(path, check_same_thread=False)
@@ -349,3 +368,107 @@ class ExperimentStore:
         with self._lock:
             rows = self._conn.execute("SELECT metric FROM hidden_metrics WHERE experiment_id = ?", (exp_id,)).fetchall()
         return {r["metric"] for r in rows}
+
+    # -- moving an experiment between databases (e.g. a laptop's and the server's) -----------------------
+    def export_experiment(self, exp_id: str) -> Dict[str, Any]:
+        """Every stored row of one experiment, as plain JSON-able data (see import_experiment)."""
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM experiments WHERE id = ?", (exp_id,)).fetchone()
+            if row is None:
+                raise KeyError(f"no such experiment: {exp_id}")
+            tables = {t: [dict(r) for r in self._conn.execute(f"SELECT * FROM {t} WHERE experiment_id = ?", (exp_id,))]
+                      for t in (*_IMMUTABLE_TABLES, "labels", "hidden_metrics")}
+        return {"format": EXPORT_FORMAT, "experiment": dict(row), "tables": tables}
+
+    def import_experiment(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Add an exported experiment, or bring an existing copy up to date, in one transaction.
+
+        Immutable rows the target lacks are added and identical ones skipped; a differing one raises
+        ImportConflict and nothing is written. Labels are replaced by key, the hidden-metric set and the
+        status are taken from the payload. Re-importing the same export is a no-op.
+        """
+        if not isinstance(payload, dict) or payload.get("format") != EXPORT_FORMAT:
+            raise ValueError(f"not an experiment export (expected format {EXPORT_FORMAT!r})")
+        exp, tables = payload.get("experiment"), payload.get("tables")
+        if not isinstance(exp, dict) or not isinstance(tables, dict) or not isinstance(exp.get("id"), str):
+            raise ValueError("an export needs an 'experiment' object with an 'id' and a 'tables' object")
+        exp_id = exp["id"]
+        if exp.get("status") not in _STATUSES:
+            raise ValueError(f"experiment status must be one of {_STATUSES}")
+        unknown = set(tables) - set(_IMMUTABLE_TABLES) - {"labels", "hidden_metrics"}
+        if unknown:
+            raise ValueError(f"unknown tables in export: {sorted(unknown)}")
+        counts: Dict[str, Any] = {"experiment_id": exp_id, "added": {}, "unchanged": 0}
+        previous_status = None
+        with self._lock:
+            columns = {t: [r[1] for r in self._conn.execute(f"PRAGMA table_info({t})")]
+                       for t in ("experiments", *_IMMUTABLE_TABLES, "labels", "hidden_metrics")}
+
+            def checked(table: str, row: Any) -> Dict[str, Any]:
+                if not isinstance(row, dict) or set(row) != set(columns[table]):
+                    raise ValueError(f"{table}: rows must have exactly the columns {columns[table]}")
+                if row["experiment_id"] != exp_id:
+                    raise ValueError(f"{table}: row belongs to {row['experiment_id']!r}, not {exp_id!r}")
+                return row
+
+            try:
+                if set(exp) != set(columns["experiments"]):
+                    raise ValueError(f"experiment must have exactly the columns {columns['experiments']}")
+                current = self._conn.execute("SELECT * FROM experiments WHERE id = ?", (exp_id,)).fetchone()
+                if current is None:
+                    cols = columns["experiments"]
+                    self._conn.execute(f"INSERT INTO experiments ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
+                                       [exp[c] for c in cols])
+                    counts["created"] = True
+                else:
+                    changed = [c for c in _FROZEN_EXPERIMENT_COLUMNS if current[c] != exp[c]]
+                    if changed:
+                        raise ImportConflict(f"{exp_id} already exists here with a different {', '.join(changed)}")
+                    counts["created"] = False
+                    previous_status = current["status"]
+                    if current["status"] != exp["status"]:
+                        self._conn.execute("UPDATE experiments SET status = ? WHERE id = ?", (exp["status"], exp_id))
+
+                for table, key in _IMMUTABLE_TABLES.items():
+                    cols, added = columns[table], 0
+                    for row in tables.get(table) or []:
+                        row = checked(table, row)
+                        have = self._conn.execute(
+                            f"SELECT * FROM {table} WHERE {' AND '.join(f'{k} = ?' for k in key)}",
+                            [row[k] for k in key]).fetchone()
+                        if have is None:
+                            self._conn.execute(f"INSERT INTO {table} ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
+                                               [row[c] for c in cols])
+                            added += 1
+                        elif any(have[c] != row[c] for c in cols):
+                            raise ImportConflict(f"{table} {tuple(row[k] for k in key)} differs from the copy here: "
+                                                 "these are two different histories of the same experiment")
+                        else:
+                            counts["unchanged"] += 1
+                    counts["added"][table] = added
+
+                cols, key = columns["labels"], ("experiment_id", "variant", "example_id", "labeler")
+                changed_labels = 0
+                for row in tables.get("labels") or []:
+                    row = checked("labels", row)
+                    have = self._conn.execute(f"SELECT * FROM labels WHERE {' AND '.join(f'{k} = ?' for k in key)}",
+                                              [row[k] for k in key]).fetchone()
+                    if have is None or any(have[c] != row[c] for c in cols):
+                        self._conn.execute(f"INSERT OR REPLACE INTO labels ({','.join(cols)}) "
+                                           f"VALUES ({','.join('?' * len(cols))})", [row[c] for c in cols])
+                        changed_labels += 1
+                counts["added"]["labels"] = changed_labels
+                hidden = {checked("hidden_metrics", r)["metric"] for r in tables.get("hidden_metrics") or []}
+                had = {r[0] for r in self._conn.execute(
+                    "SELECT metric FROM hidden_metrics WHERE experiment_id = ?", (exp_id,))}
+                if hidden != had:
+                    self._conn.execute("DELETE FROM hidden_metrics WHERE experiment_id = ?", (exp_id,))
+                    self._conn.executemany("INSERT INTO hidden_metrics VALUES (?, ?)", [(exp_id, m) for m in sorted(hidden)])
+                counts["hidden_metrics_changed"] = hidden != had
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+        counts["status"] = exp["status"]
+        counts["status_changed"] = previous_status is not None and previous_status != exp["status"]
+        return counts
