@@ -51,9 +51,33 @@ front, e.g. a Caddyfile of `obs.example.com { reverse_proxy 127.0.0.1:8000 }`, k
 Back up with `docker run --rm -v llm-observe_llmobs-data:/d -v "$PWD":/b alpine cp /d/llmobs.db /b/` (stop the
 container first).
 
+## Deploy (Vercel)
+Vercel runs `api/index.py` as a Python function (`vercel.json` routes every path to it) and has no persistent
+disk, so the data goes to **Postgres** (Neon). Both stores speak SQLite and Postgres through `llmobs_eval/db.py`;
+the schema, including the append-only triggers, is created on first start.
+
+1. Import the GitHub repo in Vercel (Add New > Project). No build settings are needed.
+2. **Storage > Create Database > Neon (Postgres)** and connect it to the project. This sets `DATABASE_URL`.
+3. **Settings > Environment Variables**: add `LLMOBS_API_KEY` (a long random string, e.g.
+   `python -c "import secrets; print(secrets.token_urlsafe(32))"`), marked *Sensitive*.
+4. Deploy, then open `https://<project>.vercel.app/healthz` (expect `{"ok":true}`) and `/` (asks for the key).
+
+Until both a key and a Postgres URL are set, every route answers **503** naming what is missing: the deployment
+never runs open, and never tries to write to Vercel's read-only disk. Then point the SDK and CLI at it:
+```bash
+$env:LLMOBS_SERVER = "https://<project>.vercel.app"; $env:LLMOBS_API_KEY = "<the key>"
+python -m llmobs_eval push <id>                          # or run/evaluate with the server set
+llmobs.configure(endpoint="https://<project>.vercel.app/v1/spans", api_key="<the key>")   # in your app
+```
+Limits to know: Vercel caps a request at **4.5 MB** (span batches are small; `push` gzips, so this is roughly
+a few thousand results per experiment); a function runs at most 60 s (`vercel.json`). Use Neon's default
+*pooled* `DATABASE_URL`: the driver runs without prepared statements so it works through the pooler. Traces are
+never deleted, so watch the Neon storage quota. To run the suite against Postgres locally:
+`LLMOBS_TEST_PG=postgresql://user:pw@host:5432/db python -m pytest` (CI does this on every push).
+
 ## Layout
 - `llmobs/` SDK: `tracer.py` (Span, `@trace`, `span()`), `exporters.py` (HTTP batching, in-memory)
-- `llmobs_server/` `store.py` (SQLite, swappable), `app.py` (FastAPI), `static/viewer.html` (waterfall UI)
+- `llmobs_server/` `store.py` (spans on SQLite or Postgres via `llmobs_eval/db.py`), `app.py` (FastAPI), `static/viewer.html` (waterfall UI)
 - Span attributes follow OpenTelemetry GenAI names (`gen_ai.request.model`, `gen_ai.usage.*_tokens`).
 
 

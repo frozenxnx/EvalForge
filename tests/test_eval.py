@@ -1,6 +1,5 @@
 import json
 import os
-import sqlite3
 import tempfile
 import threading
 import time
@@ -293,13 +292,12 @@ class RunnerTests(unittest.TestCase):
         store = ExperimentStore()
         exp = create_experiment(store, small_dataset(2), mock_cfg())
         run_experiment(store, exp)
-        c = store._conn
         for sql in ("UPDATE results SET output = 'tampered'", "DELETE FROM results",
                     "UPDATE experiment_examples SET input = 'x'", "DELETE FROM experiment_examples",
                     "UPDATE experiments SET config = '{}'", "UPDATE experiments SET dataset_hash = 'x'",
                     "DELETE FROM experiments"):
-            with self.assertRaises(sqlite3.IntegrityError, msg=sql):
-                c.execute(sql)
+            with self.assertRaises(store.db.integrity_errors, msg=sql):
+                store.db.execute(sql)
         self.assertFalse(store.add_result({"experiment_id": exp, "variant": "a", "example_id": "q0",
                                            "status": "ok", "attempts": 1, "wall_ms": 1, "created_at": 0}))
 

@@ -42,3 +42,36 @@ jobs:
 
       - name: Test
         run: python -m pytest -q
+
+  # The same suite with every store on Postgres (what a Vercel deployment uses).
+  pytest-postgres:
+    name: ubuntu-latest / py3.13 / postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: llmobs
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      LLMOBS_TEST_PG: postgresql://postgres:test@localhost:5432/llmobs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[server,postgres]" httpx pytest
+      - name: Test on Postgres
+        run: python -m pytest -q

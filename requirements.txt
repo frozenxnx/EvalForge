@@ -1,0 +1,4 @@
+# Server dependencies for Vercel (it installs this file). Local use: pip install -e ".[server,postgres]"
+fastapi>=0.110
+pydantic>=2
+psycopg[binary]>=3.2

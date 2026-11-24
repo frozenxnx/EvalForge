@@ -2,7 +2,6 @@ import json
 import os
 import re
 import shutil
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -350,8 +349,8 @@ class CompareTests(unittest.TestCase):
 
     def test_scores_are_immutable(self):
         for sql in ("UPDATE scores SET value = 1", "DELETE FROM scores"):
-            with self.assertRaises(sqlite3.IntegrityError):
-                self.store._conn.execute(sql)
+            with self.assertRaises(self.store.db.integrity_errors):
+                self.store.db.execute(sql)
 
 
 class CliTests(unittest.TestCase):

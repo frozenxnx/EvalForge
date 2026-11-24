@@ -34,10 +34,10 @@ class DemoTests(unittest.TestCase):
         spans = SpanStore(self.db)
         self.assertEqual(len(spans.list_traces(limit=200)), 200)                 # a full page ...
         self.assertTrue(spans.list_traces(limit=200, offset=200))               # ... and more behind it
-        kinds = dict(spans._conn.execute("SELECT kind, COUNT(*) FROM spans GROUP BY kind").fetchall())
+        kinds = {r["kind"]: r["n"] for r in spans.db.query("SELECT kind, COUNT(*) AS n FROM spans GROUP BY kind")}
         self.assertGreaterEqual(kinds["retrieval"], 96)                          # bm25 + oracle, 48 questions each
         self.assertGreater(kinds["llm"], 400)
-        roots = {r[0] for r in spans._conn.execute("SELECT DISTINCT name FROM spans WHERE parent_id IS NULL")}
+        roots = {r["name"] for r in spans.db.query("SELECT DISTINCT name FROM spans WHERE parent_id IS NULL")}
         self.assertTrue({"baseline", "bm25-k3", "oracle", "judge"} <= roots)
 
     def test_labels_and_calibration_are_available(self):

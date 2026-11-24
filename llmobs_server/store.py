@@ -1,15 +1,13 @@
-"""SQLite-backed span store (stdlib only).
+"""Span store on SQLite (a file path) or Postgres (a postgres:// URL), see llmobs_eval.db.
 
-Kept behind a small interface so a Postgres/ClickHouse implementation can be
-dropped in later without touching the API layer. Spans are upserted by span_id,
-so retried batches are idempotent.
+Spans are upserted by span_id, so retried batches are idempotent.
 """
 from __future__ import annotations
 
 import json
-import sqlite3
-import threading
 from typing import Any, Dict, List, Optional
+
+from llmobs_eval.db import Database
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS spans (
@@ -31,16 +29,43 @@ CREATE INDEX IF NOT EXISTS idx_spans_trace ON spans(trace_id);
 CREATE INDEX IF NOT EXISTS idx_spans_start ON spans(start_ns);
 """
 
+# Same table on Postgres: nanosecond timestamps need BIGINT; COLLATE "C" sorts text like SQLite does.
+PG_SCHEMA = """
+CREATE TABLE IF NOT EXISTS spans (
+    span_id     TEXT COLLATE "C" PRIMARY KEY,
+    trace_id    TEXT COLLATE "C" NOT NULL,
+    parent_id   TEXT COLLATE "C",
+    name        TEXT COLLATE "C" NOT NULL,
+    kind        TEXT COLLATE "C" NOT NULL DEFAULT 'chain',
+    service     TEXT COLLATE "C",
+    start_ns    BIGINT NOT NULL,
+    end_ns      BIGINT,
+    status      TEXT COLLATE "C" NOT NULL DEFAULT 'ok',
+    error       TEXT,
+    input       TEXT,
+    output      TEXT,
+    attributes  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_spans_trace ON spans(trace_id);
+CREATE INDEX IF NOT EXISTS idx_spans_start ON spans(start_ns);
+"""
+
 _J = json.dumps
+_COLS = ("span_id", "trace_id", "parent_id", "name", "kind", "service", "start_ns", "end_ns", "status", "error",
+         "input", "output", "attributes")
+_UPSERT = (f"INSERT INTO spans ({','.join(_COLS)}) VALUES ({','.join('?' * len(_COLS))}) "
+           f"ON CONFLICT (span_id) DO UPDATE SET " + ", ".join(f"{c} = excluded.{c}" for c in _COLS[1:]))
+
+
+def _token_sum(attr: str, dialect: str) -> str:
+    if dialect == "postgres":
+        return f"SUM(COALESCE((attributes::jsonb ->> '{attr}')::bigint, 0))::bigint"
+    return f"SUM(COALESCE(json_extract(attributes, '$.\"{attr}\"'), 0))"
 
 
 class SpanStore:
     def __init__(self, path: str = ":memory:") -> None:
-        self._conn = sqlite3.connect(path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
-        self._lock = threading.Lock()
-        with self._lock:
-            self._conn.executescript(SCHEMA)
+        self.db = Database(path, SCHEMA, PG_SCHEMA)
 
     def ingest(self, spans: List[Dict[str, Any]]) -> int:
         rows = [
@@ -52,51 +77,44 @@ class SpanStore:
             )
             for s in spans
         ]
-        with self._lock:
-            self._conn.executemany(
-                "INSERT OR REPLACE INTO spans VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows
-            )
-            self._conn.commit()
+        with self.db.transaction() as tx:
+            tx.executemany(_UPSERT, rows)
         return len(rows)
 
     def get_trace(self, trace_id: str) -> List[Dict[str, Any]]:
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT * FROM spans WHERE trace_id = ? ORDER BY start_ns", (trace_id,)
-            )
-            return [self._row_to_span(r) for r in cur.fetchall()]
+        rows = self.db.query("SELECT * FROM spans WHERE trace_id = ? ORDER BY start_ns", (trace_id,))
+        return [self._row_to_span(r) for r in rows]
 
     def list_traces(self, limit: int = 50, offset: int = 0,
                     service: Optional[str] = None) -> List[Dict[str, Any]]:
         where, params = "", []
         if service:
             where, params = "WHERE service = ?", [service]
+        d = self.db.dialect
         sql = f"""
             SELECT trace_id,
-                   MIN(start_ns)                                   AS start_ns,
-                   MAX(COALESCE(end_ns, start_ns))                 AS end_ns,
-                   COUNT(*)                                        AS span_count,
-                   SUM(status = 'error')                           AS error_count,
-                   SUM(COALESCE(json_extract(attributes, '$."gen_ai.usage.input_tokens"'), 0))  AS input_tokens,
-                   SUM(COALESCE(json_extract(attributes, '$."gen_ai.usage.output_tokens"'), 0)) AS output_tokens,
-                   MAX(CASE WHEN parent_id IS NULL THEN name END)  AS root_name,
-                   MAX(service)                                    AS service
+                   MIN(start_ns)                                            AS start_ns,
+                   MAX(COALESCE(end_ns, start_ns))                          AS end_ns,
+                   COUNT(*)                                                 AS span_count,
+                   SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END)        AS error_count,
+                   {_token_sum('gen_ai.usage.input_tokens', d)}             AS input_tokens,
+                   {_token_sum('gen_ai.usage.output_tokens', d)}            AS output_tokens,
+                   MAX(CASE WHEN parent_id IS NULL THEN name END)           AS root_name,
+                   MAX(service)                                             AS service
             FROM spans {where}
             GROUP BY trace_id
             ORDER BY start_ns DESC
             LIMIT ? OFFSET ?
         """
-        with self._lock:
-            cur = self._conn.execute(sql, params + [limit, offset])
-            out = []
-            for r in cur.fetchall():
-                d = dict(r)
-                d["duration_ms"] = (d["end_ns"] - d["start_ns"]) / 1e6
-                out.append(d)
-            return out
+        out = []
+        for r in self.db.query(sql, params + [limit, offset]):
+            r = {k: int(v) if k.endswith("_count") and v is not None else v for k, v in r.items()}
+            r["duration_ms"] = (r["end_ns"] - r["start_ns"]) / 1e6
+            out.append(r)
+        return out
 
     @staticmethod
-    def _row_to_span(r: sqlite3.Row) -> Dict[str, Any]:
+    def _row_to_span(r: Dict[str, Any]) -> Dict[str, Any]:
         d = dict(r)
         for k in ("input", "output", "attributes"):
             d[k] = json.loads(d[k]) if d[k] is not None else None

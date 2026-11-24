@@ -11,6 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from llmobs_eval.db import database_target
 from llmobs_eval.store import ExperimentStore, ImportConflict
 
 from . import experiments_api
@@ -42,7 +43,7 @@ class IngestBatch(BaseModel):
 
 def create_app(store: Optional[SpanStore] = None, api_key: Optional[str] = None,
                experiments: Optional[ExperimentStore] = None) -> FastAPI:
-    db_path = os.environ.get("LLMOBS_DB", "llmobs.db")
+    db_path = database_target()
     store = store or SpanStore(db_path)
     experiments = experiments or ExperimentStore(db_path)
     api_key = api_key or os.environ.get("LLMOBS_API_KEY")

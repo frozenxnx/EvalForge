@@ -6,6 +6,7 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 
+from llmobs_eval.db import database_target
 from llmobs_eval.store import ExperimentStore
 
 from .auth import MAX_BODY
@@ -57,7 +58,7 @@ def serve(db: str, host: str = "127.0.0.1", port: int = 8000, api_key: Optional[
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="llmobs_server.dev_server")
-    p.add_argument("--db", default=os.environ.get("LLMOBS_DB", "llmobs.db"))
+    p.add_argument("--db", default=database_target(), help="SQLite file or postgres:// URL")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--api-key", default=os.environ.get("LLMOBS_API_KEY"))

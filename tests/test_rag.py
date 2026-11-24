@@ -333,12 +333,11 @@ class RunnerRagTests(unittest.TestCase):
 
     def test_retrievals_and_docs_are_immutable(self):
         store, exp, _ = self.run_tiny()
-        import sqlite3
         for sql in ("UPDATE retrievals SET doc_id = 'x'", "DELETE FROM retrievals",
                     "UPDATE experiment_docs SET text = 'x'", "DELETE FROM experiment_docs",
                     "UPDATE experiment_corpus SET name = 'x'", "DELETE FROM experiment_corpus"):
-            with self.assertRaises(sqlite3.IntegrityError, msg=sql):
-                store._conn.execute(sql)
+            with self.assertRaises(store.db.integrity_errors, msg=sql):
+                store.db.execute(sql)
         self.assertEqual(store.get_corpus_info(exp)["name"], os.path.basename(store.get_corpus_info(exp)["name"]))
         self.assertEqual(len(store.get_docs(exp)), 4)
 

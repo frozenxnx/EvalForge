@@ -7,6 +7,7 @@ dependencies = []                       # the SDK is stdlib-only
 
 [project.optional-dependencies]
 server = ["fastapi>=0.110", "uvicorn>=0.29", "pydantic>=2"]
+postgres = ["psycopg[binary]>=3.2"]   # a postgres:// LLMOBS_DB / DATABASE_URL (e.g. on Vercel)
 
 [tool.setuptools.packages.find]
 include = ["llmobs*", "llmobs_server*", "llmobs_eval*"]
