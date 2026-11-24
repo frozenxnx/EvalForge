@@ -25,3 +25,7 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Secrets
+.env
+.env.*

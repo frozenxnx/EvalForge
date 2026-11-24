@@ -38,6 +38,19 @@ it from `LLMOBS_API_KEY`. Request bodies over 10 MB are refused (413) before bei
 Before exposing the server beyond your machine, also put it behind HTTPS (a reverse proxy such as Caddy or
 nginx): the key travels in a header. Traces are never deleted, and SQLite means one server process.
 
+## Deploy (Docker)
+```bash
+python -c "import secrets; print('LLMOBS_API_KEY=' + secrets.token_urlsafe(32))" > .env   # gitignored
+docker compose up -d --build           # http://127.0.0.1:8000, restarts with Docker
+docker compose logs -f                 # stop: docker compose down (data stays in the llmobs-data volume)
+```
+`compose.yaml` publishes the port on **127.0.0.1 only** and refuses to start without a key. The container runs
+as an unprivileged user on a read-only filesystem with all capabilities dropped; the database lives in the
+`llmobs-data` volume. To serve other machines, run the same image on a server and put an HTTPS reverse proxy in
+front, e.g. a Caddyfile of `obs.example.com { reverse_proxy 127.0.0.1:8000 }`, keeping the port on loopback.
+Back up with `docker run --rm -v llm-observe_llmobs-data:/d -v "$PWD":/b alpine cp /d/llmobs.db /b/` (stop the
+container first).
+
 ## Layout
 - `llmobs/` SDK: `tracer.py` (Span, `@trace`, `span()`), `exporters.py` (HTTP batching, in-memory)
 - `llmobs_server/` `store.py` (SQLite, swappable), `app.py` (FastAPI), `static/viewer.html` (waterfall UI)

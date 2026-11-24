@@ -1,0 +1,26 @@
+# Local deployment: reachable only from this machine at http://127.0.0.1:8000
+#   1. put LLMOBS_API_KEY=<long random string> in .env (gitignored)
+#   2. docker compose up -d --build
+services:
+  llmobs:
+    build: .
+    image: llmobs-server:latest
+    container_name: llmobs
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"          # loopback only; do not change to 0.0.0.0 without HTTPS in front
+    environment:
+      LLMOBS_API_KEY: ${LLMOBS_API_KEY:?set LLMOBS_API_KEY in .env - the server refuses to start open}
+    volumes:
+      - llmobs-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    pids_limit: 256
+
+volumes:
+  llmobs-data:
